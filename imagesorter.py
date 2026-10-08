@@ -333,6 +333,7 @@ class MediaSorterApp:
         self.drag_start_x = 0
         self.drag_start_y = 0
         self.raw_pil_image = None
+        self.show_details_panel = True
         
         self.root.title("Fast Media Sorter")
         self.root.geometry("1150x800")
@@ -394,6 +395,7 @@ class MediaSorterApp:
         
         tk.Label(self.nav_bar_bottom, text="Jump to file:", bg="#2b2b2b", fg="white", font=("Arial", 9)).pack(side="right", padx=5, pady=5)
 
+        # Full-width canvas container that spans the entire window width
         self.container = tk.Frame(root, bg="black")
         self.container.pack(fill=tk.BOTH, expand=True, padx=10, pady=(5, 5))
         
@@ -401,6 +403,21 @@ class MediaSorterApp:
         self.canvas.pack(fill=tk.BOTH, expand=True)
         self.canvas.focus_set()
         
+        # Floating Details Overlay (Dynamically auto-resizes to fit contents completely)
+        self.details_panel = tk.Frame(self.container, bg="#181818", relief="solid", bd=1, width=280)
+        self.details_panel.pack_propagate(False)
+        
+        self.details_title_lbl = tk.Label(self.details_panel, text="📋 File Details", bg="#181818", fg="#ffffff", font=("Arial", 9, "bold"))
+        self.details_title_lbl.pack(anchor="w", padx=10, pady=(8, 4))
+
+        self.details_text_widget = tk.Text(self.details_panel, bg="#111111", fg="#00FF7F", font=("Consolas", 9), 
+                                           relief="flat", wrap="word", highlightthickness=0, bd=0)
+        self.details_text_widget.pack(fill=tk.BOTH, expand=True, padx=8, pady=(0, 8))
+        self.details_text_widget.config(state="disabled")
+
+        if self.show_details_panel:
+            self.details_panel.place(x=10, y=10)
+
         self.toast_label = tk.Label(self.container, text="", font=("Arial", 11, "bold"), 
                                     bg="#222222", fg="#00FF7F", padx=10, pady=5)
 
@@ -421,7 +438,7 @@ class MediaSorterApp:
         for widget in self.folder_action_bar.winfo_children():
             widget.destroy()
 
-        # Add Nav Buttons & Trash to the top toolbar
+        # Add Nav Buttons, Trash & Details Toggle to the top toolbar
         prev_btn = tk.Button(self.folder_action_bar, text="⬅ Prev", bg="#d0d0d0", fg="#222222",
                              font=("Arial", 9, "bold"), relief="raised", padx=6, pady=2,
                              command=lambda: self.navigate(-1))
@@ -435,7 +452,12 @@ class MediaSorterApp:
         trash_action_btn = tk.Button(self.folder_action_bar, text="🗑️ Trash", bg="#ffcccc", fg="#880000",
                                      font=("Arial", 9, "bold"), relief="raised", padx=6, pady=2,
                                      command=self.delete_current_file)
-        trash_action_btn.pack(side="left", padx=(4, 12), pady=6)
+        trash_action_btn.pack(side="left", padx=4, pady=6)
+
+        details_toggle_btn = tk.Button(self.folder_action_bar, text="ℹ️ Details", bg="#d0d0d0" if self.show_details_panel else "#b0b0b0", fg="#222222",
+                                       font=("Arial", 9, "bold"), relief="raised", padx=6, pady=2,
+                                       command=self.toggle_details_panel)
+        details_toggle_btn.pack(side="left", padx=(4, 12), pady=6)
 
         # Add separator line/frame
         sep = tk.Frame(self.folder_action_bar, width=2, bg="#cccccc")
@@ -456,6 +478,41 @@ class MediaSorterApp:
         if not mapping_found:
             lbl = tk.Label(self.folder_action_bar, text="No destination folders assigned in configuration.", bg="#e8e8e8", fg="gray", font=("Arial", 9, "italic"))
             lbl.pack(side="left", padx=10, pady=8)
+
+    def toggle_details_panel(self):
+        self.show_details_panel = not self.show_details_panel
+        if self.show_details_panel:
+            self.details_panel.place(x=10, y=10)
+        else:
+            self.details_panel.place_forget()
+        self.update_folder_action_bar()
+        self.canvas.focus_set()
+
+    def update_details_box(self, info_text):
+        self.details_text_widget.config(state="normal")
+        self.details_text_widget.delete("1.0", tk.END)
+        self.details_text_widget.insert("1.0", info_text)
+        self.details_text_widget.config(state="disabled")
+        
+        # Dynamically calculate required height based on total text lines and wrap count
+        self.details_text_widget.update_idletasks()
+        # Count actual lines or query index of last text line
+        end_index = self.details_text_widget.index("end-1c")
+        total_lines = int(end_index.split('.')[0])
+        
+        # Approximate line height in pixels for Consolas 9 font (~16px) + padding overhead
+        line_height = 16
+        header_padding = 35
+        computed_height = max(120, (total_lines * line_height) + header_padding)
+        
+        self.details_panel.config(height=computed_height)
+
+    def format_file_size(self, size_bytes):
+        for unit in ['B', 'KB', 'MB', 'GB']:
+            if size_bytes < 1024.0:
+                return f"{size_bytes:.2f} {unit}"
+            size_bytes /= 1024.0
+        return f"{size_bytes:.2f} TB"
 
     def update_trash_counter(self):
         local_trash_dir = os.path.normpath(os.path.join(self.src_folder, ".trash"))
@@ -655,7 +712,10 @@ class MediaSorterApp:
             self.jump_label.config(text=f"{self.index + 1} / {len(self.media_files)}")
             
             try:
+                file_size_bytes = os.path.getsize(media_path)
+                formatted_size = self.format_file_size(file_size_bytes)
                 video_extensions = ('.mp4', '.webm', '.mov', '.mkv')
+
                 if ext in video_extensions:
                     self.cap = cv2.VideoCapture(media_path)
                     fps = self.cap.get(cv2.CAP_PROP_FPS)
@@ -663,9 +723,35 @@ class MediaSorterApp:
                         self.video_fps = fps
                     else:
                         self.video_fps = 30
+
+                    total_frames = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                    duration_sec = (total_frames / fps) if fps > 0 else 0
+                    mins = int(duration_sec // 60)
+                    secs = int(duration_sec % 60)
+                    duration_str = f"{mins:02d}:{secs:02d}"
+
+                    width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                    height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                    
+                    fourcc_int = int(self.cap.get(cv2.CAP_PROP_FOURCC))
+                    codec_str = "".join([chr((fourcc_int >> 8 * i) & 0xFF) for i in range(4)]).strip().upper()
+                    if not codec_str or not codec_str.isalnum():
+                        codec_str = "N/A"
+
+                    details_str = (
+                        f"Filename:\n{filename}\n\n"
+                        f"Format:\nVideo ({ext.upper()[1:]})\n\n"
+                        f"Resolution:\n{width} x {height}\n\n"
+                        f"File Size:\n{formatted_size}\n\n"
+                        f"Duration:\n{duration_str} ({total_frames} frames)\n\n"
+                        f"Frame Rate:\n{fps:.2f} FPS\n\n"
+                        f"Codec:\n{codec_str}"
+                    )
+                    self.update_details_box(details_str)
                     self.play_video_frame()
                 else:
                     self.raw_pil_image = Image.open(media_path)
+                    iw, ih = self.raw_pil_image.size
                     
                     if getattr(self.raw_pil_image, "is_animated", False):
                         self.gif_frames = []
@@ -676,12 +762,29 @@ class MediaSorterApp:
                         except EOFError:
                             pass
                         
+                        total_frames = len(self.gif_frames)
+                        details_str = (
+                            f"Filename:\n{filename}\n\n"
+                            f"Format:\nAnimated GIF\n\n"
+                            f"Resolution:\n{iw} x {ih}\n\n"
+                            f"File Size:\n{formatted_size}\n\n"
+                            f"Frames:\n1 / {total_frames} (Looping)"
+                        )
+                        self.update_details_box(details_str)
                         self.frame_idx = 0
                         self.animate_gif()
                     else:
                         self.gif_frames = None
+                        details_str = (
+                            f"Filename:\n{filename}\n\n"
+                            f"Format:\nImage ({ext.upper()[1:]})\n\n"
+                            f"Resolution:\n{iw} x {ih}\n\n"
+                            f"File Size:\n{formatted_size}"
+                        )
+                        self.update_details_box(details_str)
                         self.render_media_view()
             except Exception as e:
+                self.update_details_box(f"Error loading metadata:\n{e}")
                 self.canvas.delete("all")
                 self.canvas.create_text(self.canvas.winfo_width()//2, self.canvas.winfo_height()//2, 
                                         text=f"Error loading media:\n{e}", fill="white", font=("Arial", 12))
@@ -689,6 +792,7 @@ class MediaSorterApp:
         elif self.index >= len(self.media_files):
             undo_key_display = self.action_keys.get('undo', 'backspace').upper()
             self.status_label.config(text=f"Sorting Complete! (Use Left Arrow to review or {undo_key_display} to undo)")
+            self.update_details_box("Queue finished.\nAll items processed.")
             self.canvas.delete("all")
             self.canvas.create_text(self.canvas.winfo_width()//2, self.canvas.winfo_height()//2, 
                                     text="All media processed!", fill="white", font=("Arial", 16))
@@ -721,6 +825,22 @@ class MediaSorterApp:
         if not self.gif_frames:
             return
         self.raw_pil_image = self.gif_frames[self.frame_idx]
+        
+        filename = os.path.basename(self.media_files[self.index])
+        file_size_bytes = os.path.getsize(self.media_files[self.index])
+        formatted_size = self.format_file_size(file_size_bytes)
+        iw, ih = self.raw_pil_image.size
+        total_frames = len(self.gif_frames)
+        
+        details_str = (
+            f"Filename:\n{filename}\n\n"
+            f"Format:\nAnimated GIF\n\n"
+            f"Resolution:\n{iw} x {ih}\n\n"
+            f"File Size:\n{formatted_size}\n\n"
+            f"Frames:\n{self.frame_idx + 1} / {total_frames} (Looping)"
+        )
+        self.update_details_box(details_str)
+
         self.render_media_view()
         self.frame_idx = (self.frame_idx + 1) % len(self.gif_frames)
         self.anim_job = self.root.after(100, self.animate_gif)
