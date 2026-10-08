@@ -14,6 +14,20 @@ Settings saved on a .json file on the root folder of the executable.
 
 # Instructions
 
+Install dependencies:
+
+Python 3.x
+
+Pillow (PIL)
+```python
+pip install Pillow
+```
+
+OpenCV (opencv-python)
+
+```python
+pip install opencv-python
+```
 
 Compile with 
 
@@ -21,4 +35,4 @@ Compile with
 pyinstaller --noconsole --onefile .\imagesorter.py
 ```
 
-Or download the windows executable from releases
+Or download the windows executable from releases.

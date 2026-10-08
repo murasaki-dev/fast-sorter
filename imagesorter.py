@@ -73,7 +73,7 @@ class SetupDialog:
 
         self.rebuild_key_ui()
 
-        tk.Label(root, text="* Mouse Wheel = Zoom | Left-click Drag = Pan\n* Nav: Left/Right Arrows = Prev/Next", 
+        tk.Label(root, text="* Mouse Wheel = Zoom | Left-click Drag = Pan\n* Nav: Left/Right Arrows = Prev/Next | Delete = Move to Local Trash (Undoable)", 
                  fg="gray", font=("Arial", 9), justify="left").pack(pady=5)
         
         # Action Buttons Frame
@@ -116,7 +116,6 @@ class SetupDialog:
             entry = tk.Entry(frame, width=45)
             entry.pack(side="left", padx=5)
             
-            # Repopulate path if present
             bound_key_char = self.current_keys[slot_id]
             if bound_key_char in self.dest_dirs:
                 entry.insert(0, self.dest_dirs[bound_key_char])
@@ -167,25 +166,20 @@ class SetupDialog:
         if not self.listening_key and not self.listening_action:
             return
             
-        # Ignore modifier keys alone
         if event.keysym.lower() in ['shift_l', 'shift_r', 'control_l', 'control_r', 'alt_l', 'alt_r', 'caps_lock']:
             return
             
         new_char = event.keysym.lower()
-        
-        # Prevent binding system navigation keys
-        reserved_keys = ['left', 'right', 'return', 'escape']
+        reserved_keys = ['left', 'right', 'return', 'escape', 'delete', 'back_space']
         if new_char in reserved_keys:
-            messagebox.showwarning("Invalid Key", f"The key '{event.keysym}' is reserved for navigation.")
+            messagebox.showwarning("Invalid Key", f"The key '{event.keysym}' is reserved for navigation or deletion.")
             return
 
         if self.listening_key:
-            # Check if key is already bound to another folder slot
             for s_id, char in self.current_keys.items():
                 if char == new_char and s_id != self.listening_key:
                     messagebox.showwarning("Key in Use", f"Key '{new_char.upper()}' is already assigned to another folder slot.")
                     return
-            # Check if key is bound to actions
             for a_id, char in self.current_action_keys.items():
                 if char == new_char:
                     messagebox.showwarning("Key in Use", f"Key '{new_char.upper()}' is already assigned to action '{a_id.capitalize()}'.")
@@ -200,12 +194,10 @@ class SetupDialog:
             self.listening_key = None
 
         elif self.listening_action:
-            # Check if key is already bound to folder slots
             for s_id, char in self.current_keys.items():
                 if char == new_char:
                     messagebox.showwarning("Key in Use", f"Key '{new_char.upper()}' is already assigned to a folder slot.")
                     return
-            # Check if key is bound to other actions
             for a_id, char in self.current_action_keys.items():
                 if char == new_char and a_id != self.listening_action:
                     messagebox.showwarning("Key in Use", f"Key '{new_char.upper()}' is already assigned to another action.")
@@ -219,12 +211,14 @@ class SetupDialog:
     def browse_source(self):
         path = filedialog.askdirectory()
         if path:
+            path = os.path.normpath(path)
             self.src_entry.delete(0, tk.END)
             self.src_entry.insert(0, path)
 
     def browse_dest(self, slot_id, entry_widget):
         path = filedialog.askdirectory()
         if path:
+            path = os.path.normpath(path)
             bound_char = self.current_keys[slot_id]
             self.dest_dirs[bound_char] = path
             entry_widget.delete(0, tk.END)
@@ -237,8 +231,10 @@ class SetupDialog:
                     config = json.load(f)
                     
                 src_path = config.get("source", "")
-                if src_path and os.path.exists(src_path):
-                    self.src_entry.insert(0, src_path)
+                if src_path:
+                    src_path = os.path.normpath(src_path)
+                    if os.path.exists(src_path):
+                        self.src_entry.insert(0, src_path)
                     
                 saved_keys = config.get("key_bindings", {})
                 if saved_keys:
@@ -254,7 +250,7 @@ class SetupDialog:
                             
                 dest_paths = config.get("destinations", {})
                 for key, path in dest_paths.items():
-                    self.dest_dirs[key] = path
+                    self.dest_dirs[key] = os.path.normpath(path)
                     
                 self.rebuild_key_ui()
             except Exception as e:
@@ -262,10 +258,10 @@ class SetupDialog:
 
     def save_config(self, src, dests, key_bindings, action_keys):
         config = {
-            "source": src,
+            "source": os.path.normpath(src),
             "key_bindings": key_bindings,
             "action_keys": action_keys,
-            "destinations": dests
+            "destinations": {k: os.path.normpath(v) for k, v in dests.items()}
         }
         try:
             with open(CONFIG_FILE, "w") as f:
@@ -288,7 +284,7 @@ class SetupDialog:
                     print(f"Failed to delete config file: {e}")
 
     def validate_and_start(self):
-        src = self.src_entry.get().strip()
+        src = os.path.normpath(self.src_entry.get().strip())
         if not src or not os.path.exists(src):
             messagebox.showerror("Error", "Please select a valid source folder.")
             return
@@ -298,11 +294,9 @@ class SetupDialog:
             val = entry.get().strip()
             bound_char = self.current_keys[slot_id]
             if val:
-                self.dest_dirs[bound_char] = val
+                self.dest_dirs[bound_char] = os.path.normpath(val)
 
-        # Save preferences for future runs
         self.save_config(src, self.dest_dirs, self.current_keys, self.current_action_keys)
-
         self.root.destroy()
         
         main_root = tk.Tk()
@@ -312,30 +306,27 @@ class SetupDialog:
 class MediaSorterApp:
     def __init__(self, root, src_folder, dest_dirs, key_bindings, action_keys):
         self.root = root
-        self.src_folder = src_folder
+        self.src_folder = os.path.normpath(src_folder)
         self.dest_dirs = dest_dirs
         self.key_bindings = key_bindings
         self.action_keys = action_keys
         
         valid_extensions = ('.png', '.jpg', '.jpeg', '.bmp', '.gif', '.webp', '.mp4', '.webm', '.mov', '.mkv')
-        self.media_files = [os.path.join(src_folder, f) for f in os.listdir(src_folder) 
+        self.media_files = [os.path.normpath(os.path.join(self.src_folder, f)) for f in os.listdir(self.src_folder) 
                             if f.lower().endswith(valid_extensions)]
         
-        # Default sort by filename alphabetically
         self.media_files.sort()
         
         self.index = 0
         self.history = []
-        self.moved_count = 0  # Counter for moved files this session
+        self.moved_count = 0
         self.toast_timer = None
         self.anim_job = None
         
-        # Video Playback State Variables
         self.cap = None
         self.video_fps = 30
         self.video_job = None
         
-        # Zoom and Pan State Variables
         self.zoom_scale = 1.0
         self.pan_x = 0
         self.pan_y = 0
@@ -344,71 +335,141 @@ class MediaSorterApp:
         self.raw_pil_image = None
         
         self.root.title("Fast Media Sorter")
-        self.root.geometry("1100x800")
+        self.root.geometry("1150x800")
         
         self.status_label = tk.Label(root, text="", font=("Arial", 9), bg="#f0f0f0", anchor="w")
-        self.status_label.pack(side="top", fill="x", padx=10, pady=5)
+        self.status_label.pack(side="top", fill="x", padx=10, pady=(5, 2))
         
-        # Bottom navigation bar
-        self.nav_bar = tk.Frame(root, bg="#2b2b2b", height=45)
-        self.nav_bar.pack(side="bottom", fill="x")
-        self.nav_bar.pack_propagate(False)
+        # Clickable Action Bar (Top Toolbar for Mouse Users)
+        self.folder_action_bar = tk.Frame(root, bg="#e8e8e8", height=40)
+        self.folder_action_bar.pack(side="top", fill="x", padx=10, pady=(0, 5))
+        self.folder_action_bar.pack_propagate(False)
         
-        self.explorer_btn = tk.Button(self.nav_bar, text="📂 Open in Explorer", command=self.open_in_explorer, 
+        # Two-tier responsive bottom container
+        self.nav_container = tk.Frame(root, bg="#2b2b2b")
+        self.nav_container.pack(side="bottom", fill="x")
+        
+        # Top row of bottom toolbar (Actions & Counters)
+        self.nav_bar_top = tk.Frame(self.nav_container, bg="#2b2b2b", height=40)
+        self.nav_bar_top.pack(side="top", fill="x", padx=5, pady=(5, 0))
+        self.nav_bar_top.pack_propagate(False)
+        
+        self.explorer_btn = tk.Button(self.nav_bar_top, text="📂 Open in Explorer", command=self.open_in_explorer, 
                                       bg="#444444", fg="white", font=("Arial", 9), relief="flat", activebackground="#555555", activeforeground="white")
-        self.explorer_btn.pack(side="left", padx=10, pady=7)
+        self.explorer_btn.pack(side="left", padx=5, pady=5)
 
-        # Moved Counter Label in Navbar
-        self.counter_label = tk.Label(self.nav_bar, text="Moved: 0", bg="#2b2b2b", fg="#00FF7F", font=("Arial", 9, "bold"))
-        self.counter_label.pack(side="left", padx=10)
+        self.trash_btn = tk.Button(self.nav_bar_top, text="🗑️ Empty Local Trash", command=self.empty_local_trash, 
+                                   bg="#5a2323", fg="white", font=("Arial", 9), relief="flat", activebackground="#7a2e2e", activeforeground="white")
+        self.trash_btn.pack(side="left", padx=5, pady=5)
 
-        # Sort Order Dropdown
-        tk.Label(self.nav_bar, text="Sort by:", bg="#2b2b2b", fg="white", font=("Arial", 9)).pack(side="left", padx=(10, 2))
+        self.restore_trash_btn = tk.Button(self.nav_bar_top, text="♻️ Restore All", command=self.restore_all_from_trash, 
+                                           bg="#3a4a3a", fg="white", font=("Arial", 9), relief="flat", activebackground="#4a5a4a", activeforeground="white")
+        self.restore_trash_btn.pack(side="left", padx=5, pady=5)
+
+        self.counter_label = tk.Label(self.nav_bar_top, text="Moved: 0", bg="#2b2b2b", fg="#00FF7F", font=("Arial", 9, "bold"))
+        self.counter_label.pack(side="left", padx=10, pady=5)
+
+        # Bottom row of bottom toolbar (Sorting & Jumping)
+        self.nav_bar_bottom = tk.Frame(self.nav_container, bg="#2b2b2b", height=40)
+        self.nav_bar_bottom.pack(side="top", fill="x", padx=5, pady=(0, 5))
+        self.nav_bar_bottom.pack_propagate(False)
+
+        tk.Label(self.nav_bar_bottom, text="Sort by:", bg="#2b2b2b", fg="white", font=("Arial", 9)).pack(side="left", padx=(5, 2), pady=5)
         
         self.sort_var = tk.StringVar(value="Filename (A-Z)")
-        self.sort_dropdown = ttk.Combobox(self.nav_bar, textvariable=self.sort_var, state="readonly", width=16,
+        self.sort_dropdown = ttk.Combobox(self.nav_bar_bottom, textvariable=self.sort_var, state="readonly", width=16,
                                           values=["Filename (A-Z)", "Date Modified (Newest)", "Date Modified (Oldest)", 
                                                   "File Size (Largest)", "File Size (Smallest)", "File Type"])
-        self.sort_dropdown.pack(side="left", padx=5)
+        self.sort_dropdown.pack(side="left", padx=5, pady=5)
         
-        # Bind events
         self.sort_dropdown.bind("<<ComboboxSelected>>", self.on_sort_changed)
-        
-        # Safe global click-away handler to restore focus to canvas if user clicks outside the dropdown
         self.root.bind("<Button-1>", self.check_focus_restore, add="+")
 
-        self.jump_label = tk.Label(self.nav_bar, text="", bg="#2b2b2b", fg="white", font=("Arial", 9, "bold"))
-        self.jump_label.pack(side="right", padx=10)
+        self.jump_label = tk.Label(self.nav_bar_bottom, text="", bg="#2b2b2b", fg="white", font=("Arial", 9, "bold"))
+        self.jump_label.pack(side="right", padx=5, pady=5)
         
-        self.jump_slider = tk.Scale(self.nav_bar, from_=1, to=max(1, len(self.media_files)), orient="horizontal", 
+        self.jump_slider = tk.Scale(self.nav_bar_bottom, from_=1, to=max(1, len(self.media_files)), orient="horizontal", 
                                     command=self.slider_moved, bg="#2b2b2b", fg="white", highlightthickness=0, troughcolor="#444444")
-        self.jump_slider.pack(side="right", fill="x", expand=True, padx=10)
+        self.jump_slider.pack(side="right", fill="x", expand=True, padx=5, pady=2)
         
-        tk.Label(self.nav_bar, text="Jump to file:", bg="#2b2b2b", fg="white", font=("Arial", 9)).pack(side="right", padx=5)
+        tk.Label(self.nav_bar_bottom, text="Jump to file:", bg="#2b2b2b", fg="white", font=("Arial", 9)).pack(side="right", padx=5, pady=5)
 
-        # Canvas for zooming & panning
         self.container = tk.Frame(root, bg="black")
         self.container.pack(fill=tk.BOTH, expand=True, padx=10, pady=(5, 5))
         
         self.canvas = tk.Canvas(self.container, bg="black", highlightthickness=0)
         self.canvas.pack(fill=tk.BOTH, expand=True)
-        self.canvas.focus_set()  # Ensure keyboard shortcuts target the canvas by default
+        self.canvas.focus_set()
         
-        # Toast Overlay
         self.toast_label = tk.Label(self.container, text="", font=("Arial", 11, "bold"), 
                                     bg="#222222", fg="#00FF7F", padx=10, pady=5)
 
-        # Event Bindings
         self.root.bind('<Key>', self.handle_keypress)
-        self.canvas.bind('<MouseWheel>', self.on_zoom)          # Windows & MacOS
-        self.canvas.bind('<Button-4>', self.on_zoom)            # Linux scroll up
-        self.canvas.bind('<Button-5>', self.on_zoom)            # Linux scroll down
+        self.canvas.bind('<MouseWheel>', self.on_zoom)
+        self.canvas.bind('<Button-4>', self.on_zoom)
+        self.canvas.bind('<Button-5>', self.on_zoom)
         self.canvas.bind('<ButtonPress-1>', self.start_pan)
         self.canvas.bind('<B1-Motion>', self.do_pan)
         self.canvas.bind('<Configure>', self.on_canvas_resize)
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
+        # Initialize trash counter on start
+        self.update_trash_counter()
         self.load_current_media()
+
+    def update_folder_action_bar(self):
+        for widget in self.folder_action_bar.winfo_children():
+            widget.destroy()
+
+        # Add Nav Buttons & Trash to the top toolbar
+        prev_btn = tk.Button(self.folder_action_bar, text="⬅ Prev", bg="#d0d0d0", fg="#222222",
+                             font=("Arial", 9, "bold"), relief="raised", padx=6, pady=2,
+                             command=lambda: self.navigate(-1))
+        prev_btn.pack(side="left", padx=4, pady=6)
+
+        next_btn = tk.Button(self.folder_action_bar, text="Next ➡", bg="#d0d0d0", fg="#222222",
+                             font=("Arial", 9, "bold"), relief="raised", padx=6, pady=2,
+                             command=lambda: self.navigate(1))
+        next_btn.pack(side="left", padx=4, pady=6)
+
+        trash_action_btn = tk.Button(self.folder_action_bar, text="🗑️ Trash", bg="#ffcccc", fg="#880000",
+                                     font=("Arial", 9, "bold"), relief="raised", padx=6, pady=2,
+                                     command=self.delete_current_file)
+        trash_action_btn.pack(side="left", padx=(4, 12), pady=6)
+
+        # Add separator line/frame
+        sep = tk.Frame(self.folder_action_bar, width=2, bg="#cccccc")
+        sep.pack(side="left", fill="y", padx=2, pady=6)
+
+        mapping_found = False
+        for slot_id, k in self.key_bindings.items():
+            v = self.dest_dirs.get(k)
+            if v:
+                mapping_found = True
+                folder_name = os.path.basename(v)
+                btn_text = f"📁 [{k.upper()}] {folder_name}"
+                btn = tk.Button(self.folder_action_bar, text=btn_text, bg="#d0d0d0", fg="#222222", 
+                                font=("Arial", 9, "bold"), relief="raised", padx=8, pady=2,
+                                command=lambda key_char=k: self.handle_move_action(key_char))
+                btn.pack(side="left", padx=4, pady=6)
+
+        if not mapping_found:
+            lbl = tk.Label(self.folder_action_bar, text="No destination folders assigned in configuration.", bg="#e8e8e8", fg="gray", font=("Arial", 9, "italic"))
+            lbl.pack(side="left", padx=10, pady=8)
+
+    def update_trash_counter(self):
+        local_trash_dir = os.path.normpath(os.path.join(self.src_folder, ".trash"))
+        count = 0
+        if os.path.exists(local_trash_dir):
+            try:
+                count = len([f for f in os.listdir(local_trash_dir) if os.path.isfile(os.path.join(local_trash_dir, f))])
+            except Exception:
+                count = 0
+        
+        if count > 0:
+            self.trash_btn.config(text=f"🗑️ Empty Local Trash ({count})")
+        else:
+            self.trash_btn.config(text="🗑️ Empty Local Trash")
 
     def check_focus_restore(self, event):
         current_focus = self.root.focus_get()
@@ -463,6 +524,61 @@ class MediaSorterApp:
                 subprocess.run(['open', '-R', media_path])
             else:
                 subprocess.run(['xdg-open', os.path.dirname(media_path)])
+
+    def empty_local_trash(self):
+        local_trash_dir = os.path.normpath(os.path.join(self.src_folder, ".trash"))
+        if not os.path.exists(local_trash_dir) or not os.listdir(local_trash_dir):
+            messagebox.showinfo("Local Trash", "Local trash folder is empty or doesn't exist yet.")
+            return
+            
+        if messagebox.askyesno("Empty Local Trash", "Are you sure you want to permanently delete all items inside the local trash?"):
+            try:
+                shutil.rmtree(local_trash_dir)
+                os.makedirs(local_trash_dir, exist_ok=True)
+                self.update_trash_counter()
+                self.show_toast("Local Trash Emptied", color="#FF4500")
+            except Exception as e:
+                messagebox.showerror("Error", f"Could not empty local trash:\n{e}")
+        self.canvas.focus_set()
+
+    def restore_all_from_trash(self):
+        local_trash_dir = os.path.normpath(os.path.join(self.src_folder, ".trash"))
+        if not os.path.exists(local_trash_dir):
+            messagebox.showinfo("Restore", "Local trash folder does not exist.")
+            return
+            
+        trash_files = [f for f in os.listdir(local_trash_dir) if os.path.isfile(os.path.join(local_trash_dir, f))]
+        if not trash_files:
+            messagebox.showinfo("Restore", "Local trash is empty.")
+            return
+
+        if messagebox.askyesno("Restore All", f"Are you sure you want to restore all {len(trash_files)} files from the local trash back to the source folder?"):
+            try:
+                for filename in trash_files:
+                    src_file = os.path.normpath(os.path.join(local_trash_dir, filename))
+                    dest_file = os.path.normpath(os.path.join(self.src_folder, filename))
+                    
+                    if os.path.exists(dest_file):
+                        base, ext = os.path.splitext(filename)
+                        counter = 1
+                        while os.path.exists(dest_file):
+                            dest_file = os.path.normpath(os.path.join(self.src_folder, f"{base}_restored_{counter}{ext}"))
+                            counter += 1
+                            
+                    shutil.move(src_file, dest_file)
+                
+                valid_extensions = ('.png', '.jpg', '.jpeg', '.bmp', '.gif', '.webp', '.mp4', '.webm', '.mov', '.mkv')
+                self.media_files = [os.path.normpath(os.path.join(self.src_folder, f)) for f in os.listdir(self.src_folder) 
+                                    if f.lower().endswith(valid_extensions)]
+                self.media_files.sort()
+                self.index = 0
+                
+                self.update_trash_counter()
+                self.show_toast("Restored all items from trash!", color="#00FF7F")
+                self.load_current_media()
+            except Exception as e:
+                messagebox.showerror("Error", f"Could not restore files:\n{e}")
+        self.canvas.focus_set()
 
     def slider_moved(self, val):
         if not self.media_files:
@@ -524,21 +640,15 @@ class MediaSorterApp:
         self.stop_video_stream()
 
         self.reset_view()
+        self.update_folder_action_bar()
 
         if 0 <= self.index < len(self.media_files):
             media_path = self.media_files[self.index]
             filename = os.path.basename(media_path)
             ext = os.path.splitext(filename)[1].lower()
             
-            mapping_parts = []
-            for slot_id, k in self.key_bindings.items():
-                v = self.dest_dirs.get(k)
-                if v:
-                    mapping_parts.append(f"{k.upper()}: {os.path.basename(v)}")
-                    
-            mapping_str = " | ".join(mapping_parts) if mapping_parts else "No folders assigned"
             skip_key_display = self.action_keys.get('skip', 'space').upper()
-            self.status_label.config(text=f"[{self.index + 1}/{len(self.media_files)}] {filename}\nKeys: {mapping_str} | [{skip_key_display}: Skip]")
+            self.status_label.config(text=f"[{self.index + 1}/{len(self.media_files)}] {filename} | [{skip_key_display}: Skip] | [Delete: Move to Local Trash]")
             
             self.jump_slider.config(to=max(1, len(self.media_files)))
             self.jump_slider.set(self.index + 1)
@@ -595,13 +705,11 @@ class MediaSorterApp:
             
         ret, frame = self.cap.read()
         if not ret:
-            # Loop video playback
             self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
             ret, frame = self.cap.read()
             if not ret:
                 return
                 
-        # Convert OpenCV BGR to RGB PIL Image
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         self.raw_pil_image = Image.fromarray(frame_rgb)
         self.render_media_view()
@@ -657,6 +765,8 @@ class MediaSorterApp:
             self.skip_action()
         elif key == undo_key:
             self.undo_last_action()
+        elif key in ['delete', 'backspace'] and event.keysym.lower() == 'delete':
+            self.delete_current_file()
         elif key in active_bound_keys:
             self.handle_move_action(key)
         elif key == 'left':
@@ -669,16 +779,17 @@ class MediaSorterApp:
             return
             
         self.stop_video_stream()
-        current_media_path = self.media_files[self.index]
+        current_media_path = os.path.normpath(self.media_files[self.index])
         target_folder = self.dest_dirs.get(key)
         
         if target_folder:
+            target_folder = os.path.normpath(target_folder)
             os.makedirs(target_folder, exist_ok=True)
             folder_name = os.path.basename(target_folder)
-            dest_path = os.path.join(target_folder, os.path.basename(current_media_path))
+            dest_path = os.path.normpath(os.path.join(target_folder, os.path.basename(current_media_path)))
             
             shutil.move(current_media_path, dest_path)
-            self.history.append((current_media_path, self.index, dest_path))
+            self.history.append((current_media_path, self.index, dest_path, 'move'))
             self.media_files.pop(self.index)
             
             self.moved_count += 1
@@ -689,6 +800,39 @@ class MediaSorterApp:
                 
             self.show_toast(f"Moved to [{key.upper()}]: {folder_name}", color="#00FF7F")
             self.load_current_media()
+
+    def delete_current_file(self):
+        if not (0 <= self.index < len(self.media_files)):
+            return
+
+        self.stop_video_stream()
+        current_media_path = os.path.normpath(self.media_files[self.index])
+
+        try:
+            local_trash_dir = os.path.normpath(os.path.join(self.src_folder, ".trash"))
+            os.makedirs(local_trash_dir, exist_ok=True)
+            
+            dest_path = os.path.normpath(os.path.join(local_trash_dir, os.path.basename(current_media_path)))
+            
+            base, ext = os.path.splitext(os.path.basename(current_media_path))
+            counter = 1
+            while os.path.exists(dest_path):
+                dest_path = os.path.normpath(os.path.join(local_trash_dir, f"{base}_{counter}{ext}"))
+                counter += 1
+
+            shutil.move(current_media_path, dest_path)
+
+            self.history.append((current_media_path, self.index, dest_path, 'delete'))
+            self.media_files.pop(self.index)
+
+            if self.index >= len(self.media_files) and self.index > 0:
+                self.index = len(self.media_files) - 1
+
+            self.update_trash_counter()
+            self.show_toast("Moved to Local Trash (Undoable)", color="#FF4500")
+            self.load_current_media()
+        except Exception as e:
+            messagebox.showerror("Error", f"Could not move file to local trash:\n{e}")
 
     def skip_action(self):
         if len(self.media_files) == 0:
@@ -710,20 +854,39 @@ class MediaSorterApp:
             return
             
         self.stop_video_stream()
-        last_media_path, old_index, last_dest_path = self.history.pop()
+        last_record = self.history.pop()
         
-        if os.path.exists(last_dest_path):
-            restored_path = os.path.join(self.src_folder, os.path.basename(last_media_path))
-            shutil.move(last_dest_path, restored_path)
-            
-            self.media_files.insert(old_index, restored_path)
-            self.index = old_index
-            
-            self.moved_count = max(0, self.moved_count - 1)
-            self.counter_label.config(text=f"Moved: {self.moved_count}")
-            
-            self.show_toast("Undo Move", color="#00BFFF")
-            self.load_current_media()
+        if len(last_record) == 4:
+            last_media_path, old_index, target_path, action_type = last_record
+        else:
+            last_media_path, old_index, target_path = last_record
+            action_type = 'move'
+
+        if action_type in ['move', 'delete']:
+            if target_path and os.path.exists(target_path):
+                restored_path = os.path.normpath(os.path.join(self.src_folder, os.path.basename(last_media_path)))
+                
+                if os.path.exists(restored_path):
+                    base, ext = os.path.splitext(os.path.basename(last_media_path))
+                    counter = 1
+                    while os.path.exists(restored_path):
+                        restored_path = os.path.normpath(os.path.join(self.src_folder, f"{base}_restored_{counter}{ext}"))
+                        counter += 1
+
+                shutil.move(target_path, restored_path)
+                
+                self.media_files.insert(old_index, restored_path)
+                self.index = old_index
+                
+                if action_type == 'move':
+                    self.moved_count = max(0, self.moved_count - 1)
+                    self.counter_label.config(text=f"Moved: {self.moved_count}")
+                    self.show_toast("Undo Move", color="#00BFFF")
+                else:
+                    self.update_trash_counter()
+                    self.show_toast("Undo Delete (Restored)", color="#00FF7F")
+                    
+                self.load_current_media()
 
     def on_close(self):
         self.stop_video_stream()
