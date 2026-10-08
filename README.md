@@ -2,6 +2,8 @@
 
 Moves images between folders with assigned shortcuts quickly.
 
+Supports popular image and video files.
+
 Settings saved on a .json file on the root folder of the executable.
 
 
