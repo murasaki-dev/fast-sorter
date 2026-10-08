@@ -29,6 +29,12 @@ OpenCV (opencv-python)
 pip install opencv-python
 ```
 
+send2trash
+
+```python
+pip install send2trash
+```
+
 Compile with 
 
 ```python
