@@ -625,7 +625,6 @@ class MediaSorterApp:
         self.footer_dark_chk.pack(side="right", padx=5, pady=5)
         ToolTip(self.footer_dark_chk, "Toggle application dark mode")
 
-        # Filename Conflict toggle relocated to the bottom navigation bar (next to dark mode toggle)
         self.collision_var = tk.StringVar(value=self.collision_mode)
         self.collision_dropdown = ttk.Combobox(self.nav_bar_top, textvariable=self.collision_var, state="readonly", width=10,
                                                values=["append", "replace"])
@@ -1637,6 +1636,45 @@ class MediaSorterApp:
         self.root.destroy()
 
 if __name__ == "__main__":
-    setup_root = tk.Tk()
-    SetupDialog(setup_root)
-    setup_root.mainloop()
+    # Check if a directory path was passed via command line argument or drag-and-drop onto executable
+    target_dir = None
+    if len(sys.argv) > 1:
+        potential_path = sys.argv[1]
+        if os.path.isdir(potential_path):
+            target_dir = os.path.normpath(potential_path)
+
+    if target_dir:
+        # Load saved config defaults if available, then override source with target_dir
+        dest_dirs = {}
+        key_bindings = {
+            'slot_0': 'w', 'slot_1': 'a', 'slot_2': 's', 'slot_3': 'd',
+            'slot_4': 'i', 'slot_5': 'j', 'slot_6': 'k', 'slot_7': 'l'
+        }
+        action_keys = {
+            'skip': 'space', 'undo': 'backspace', 'temp': 'e',
+            'pick_temp': 'q', 'details': 'p', 'delete': 'delete'
+        }
+        dark_mode = False
+        collision_mode = "append"
+
+        if os.path.exists(CONFIG_FILE):
+            try:
+                with open(CONFIG_FILE, "r") as f:
+                    config = json.load(f)
+                    dest_dirs = {k: os.path.normpath(v) for k, v in config.get("destinations", {}).items()}
+                    if config.get("key_bindings"):
+                        key_bindings = config.get("key_bindings")
+                    if config.get("action_keys"):
+                        action_keys = config.get("action_keys")
+                    dark_mode = config.get("dark_mode", False)
+                    collision_mode = config.get("collision_mode", "append")
+            except Exception as e:
+                print(f"Failed to load config: {e}")
+
+        main_root = tk.Tk()
+        MediaSorterApp(main_root, target_dir, dest_dirs, key_bindings, action_keys, dark_mode, collision_mode)
+        main_root.mainloop()
+    else:
+        setup_root = tk.Tk()
+        SetupDialog(setup_root)
+        setup_root.mainloop()
