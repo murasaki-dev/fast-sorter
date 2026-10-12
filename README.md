@@ -1,6 +1,6 @@
-# Fast Image Sorter
+# Fast Media Sorter
 
-Moves images between folders with assigned shortcuts quickly.
+Moves images and videos between folders with assigned shortcuts quickly.
 
 Settings saved on a .json file on the root folder of the executable.
 
