@@ -4,6 +4,7 @@ import json
 import shutil
 import subprocess
 import platform
+import ctypes
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 from PIL import Image, ImageTk
@@ -16,6 +17,29 @@ else:
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 CONFIG_FILE = os.path.join(BASE_DIR, "sorter_config.json")
+
+def set_window_title_bar_theme(root, is_dark):
+    """Enables or disables native dark mode on the Windows title bar."""
+    if platform.system() != "Windows":
+        return
+    try:
+        root.update_idletasks()
+        hwnd = ctypes.windll.user32.GetParent(root.winfo_id())
+        if not hwnd:
+            hwnd = root.winfo_id()
+        
+        # DWMWA_USE_IMMERSIVE_DARK_MODE = 20 (Windows 11 / 10 build 19041+)
+        # DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1 = 19
+        for attribute in (20, 19):
+            value = ctypes.c_int(1 if is_dark else 0)
+            ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                hwnd,
+                attribute,
+                ctypes.byref(value),
+                ctypes.sizeof(value)
+            )
+    except Exception as e:
+        print(f"Failed to set title bar theme: {e}")
 
 class ToolTip:
     """Helper class to create lightweight hover tooltips for Tkinter widgets."""
@@ -63,7 +87,7 @@ class SetupDialog:
     def __init__(self, root):
         self.root = root
         self.root.title("Fast Media Sorter - Configuration")
-        self.root.geometry("620x840")
+        self.root.geometry("620x880")
         
         self.source_dir = ""
         self.dest_dirs = {}
@@ -91,52 +115,103 @@ class SetupDialog:
         self.current_keys = self.default_keys.copy()
         self.current_action_keys = self.default_action_keys.copy()
         
+        self.dark_mode_var = tk.BooleanVar(value=False)
+        
         # --- Source Folder Section ---
-        tk.Label(root, text="Unsorted Media Folder:", font=("Arial", 10, "bold")).pack(anchor="w", padx=20, pady=(15, 0))
+        self.lbl_src = tk.Label(root, text="Unsorted Media Folder:", font=("Arial", 10, "bold"))
+        self.lbl_src.pack(anchor="w", padx=20, pady=(15, 0))
         
-        src_frame = tk.Frame(root)
-        src_frame.pack(fill="x", padx=20, pady=5)
+        self.src_frame = tk.Frame(root)
+        self.src_frame.pack(fill="x", padx=20, pady=5)
         
-        self.src_entry = tk.Entry(src_frame, width=45)
-        self.src_entry.pack(side="left", padx=(0, 5))
-        src_browse_btn = tk.Button(src_frame, text="Browse Source", command=self.browse_source)
-        src_browse_btn.pack(side="left")
-        ToolTip(src_browse_btn, "Select the folder containing unsorted media files")
+        self.src_entry = tk.Entry(self.src_frame, width=45, relief="solid", bd=1)
+        self.src_entry.pack(side="left", padx=(0, 5), fill="x", expand=True)
+        self.src_browse_btn = tk.Button(self.src_frame, text="Browse Source", command=self.browse_source, relief="flat", bd=0)
+        self.src_browse_btn.pack(side="left")
+        ToolTip(self.src_browse_btn, "Select the folder containing unsorted media files")
         
         # --- Destination Folders & Key Rebinding Section ---
-        tk.Label(root, text="Assign Folders & Rebind Folder Keys (Click button to change key):", font=("Arial", 10, "bold")).pack(anchor="w", padx=20, pady=(15, 0))
+        self.lbl_dest = tk.Label(root, text="Assign Folders & Rebind Folder Keys (Click button to change key):", font=("Arial", 10, "bold"))
+        self.lbl_dest.pack(anchor="w", padx=20, pady=(15, 0))
         
         self.folder_rows_frame = tk.Frame(root)
         self.folder_rows_frame.pack(fill="x", padx=20, pady=5)
 
         # --- Action Key Rebinding Section ---
-        tk.Label(root, text="Action Keys Rebinding:", font=("Arial", 10, "bold")).pack(anchor="w", padx=20, pady=(10, 0))
+        self.lbl_action = tk.Label(root, text="Action Keys Rebinding:", font=("Arial", 10, "bold"))
+        self.lbl_action.pack(anchor="w", padx=20, pady=(10, 0))
         
         self.action_rows_frame = tk.Frame(root)
         self.action_rows_frame.pack(fill="x", padx=20, pady=5)
 
         self.rebuild_key_ui()
 
-        tk.Label(root, text="* Mouse Wheel = Zoom | Left-click Drag = Pan\n* Nav: Left/Right Arrows = Prev/Next | Delete = Move to Local Trash (Undoable)", 
-                 fg="gray", font=("Arial", 9), justify="left").pack(pady=5)
+        # --- Theme Option ---
+        self.theme_frame = tk.Frame(root)
+        self.theme_frame.pack(fill="x", padx=20, pady=10)
+        self.dark_mode_chk = tk.Checkbutton(self.theme_frame, text="Enable Dark Mode", variable=self.dark_mode_var, font=("Arial", 10, "bold"), command=self.apply_theme)
+        self.dark_mode_chk.pack(anchor="w")
+
+        self.lbl_hints = tk.Label(root, text="* Mouse Wheel = Zoom | Left-click Drag = Pan\n* Nav: Left/Right Arrows = Prev/Next | Delete = Move to Local Trash (Undoable)", 
+                                  fg="gray", font=("Arial", 9), justify="left")
+        self.lbl_hints.pack(pady=5)
         
         # Action Buttons Frame
-        btn_frame = tk.Frame(root)
-        btn_frame.pack(pady=10)
+        self.btn_frame = tk.Frame(root)
+        self.btn_frame.pack(pady=10)
 
-        start_btn = tk.Button(btn_frame, text="Start Sorting", bg="#28a745", fg="white", font=("Arial", 11, "bold"), 
-                              padx=15, pady=5, command=self.validate_and_start)
-        start_btn.pack(side="left", padx=10)
-        ToolTip(start_btn, "Save configuration and launch the sorter interface")
+        self.start_btn = tk.Button(self.btn_frame, text="Start Sorting", bg="#28a745", fg="white", font=("Arial", 11, "bold"), 
+                                   padx=15, pady=5, relief="flat", bd=0, command=self.validate_and_start)
+        self.start_btn.pack(side="left", padx=10)
+        ToolTip(self.start_btn, "Save configuration and launch the sorter interface")
         
-        clear_btn = tk.Button(btn_frame, text="Clear Saved Folders", bg="#dc3545", fg="white", font=("Arial", 10), 
-                              padx=10, pady=5, command=self.clear_config)
-        clear_btn.pack(side="left", padx=10)
-        ToolTip(clear_btn, "Clear all saved folder assignments and custom key bindings")
+        self.clear_btn = tk.Button(self.btn_frame, text="Clear Saved Folders", bg="#dc3545", fg="white", font=("Arial", 10), 
+                                   padx=10, pady=5, relief="flat", bd=0, command=self.clear_config)
+        self.clear_btn.pack(side="left", padx=10)
+        ToolTip(self.clear_btn, "Clear all saved folder assignments and custom key bindings")
 
-        # Load saved config on startup
         self.load_saved_config()
+        self.apply_theme()
         self.root.bind("<Key>", self.handle_key_listen)
+
+    def apply_theme(self):
+        is_dark = self.dark_mode_var.get()
+        set_window_title_bar_theme(self.root, is_dark)
+        
+        bg_color = "#121212" if is_dark else "#f0f0f0"
+        fg_color = "#ffffff" if is_dark else "#000000"
+        frame_bg = "#1e1e1e" if is_dark else "#f0f0f0"
+        widget_bg = "#252526" if is_dark else "#ffffff"
+        widget_fg = "#ffffff" if is_dark else "#000000"
+        btn_bg = "#333333" if is_dark else "#e0e0e0"
+        
+        self.root.config(bg=bg_color)
+        for parent_frame in [self.src_frame, self.folder_rows_frame, self.action_rows_frame, self.theme_frame, self.btn_frame]:
+            parent_frame.config(bg=bg_color)
+
+        for parent_frame in [self.folder_rows_frame, self.action_rows_frame]:
+            for child in parent_frame.winfo_children():
+                try:
+                    child.config(bg=frame_bg)
+                    for sub in child.winfo_children():
+                        if isinstance(sub, tk.Label):
+                            sub.config(bg=frame_bg, fg=fg_color)
+                        elif isinstance(sub, tk.Entry):
+                            sub.config(bg=widget_bg, fg=widget_fg, insertbackground=widget_fg, relief="solid", bd=1)
+                        elif isinstance(sub, tk.Button):
+                            if sub["bg"] not in ["#28a745", "#dc3545", "#ffc107"]:
+                                sub.config(bg=btn_bg, fg=fg_color, activebackground="#444444" if is_dark else "#d0d0d0", activeforeground=fg_color, relief="flat", bd=0)
+                except Exception:
+                    pass
+
+        for lbl in [self.lbl_src, self.lbl_dest, self.lbl_action, self.lbl_hints]:
+            lbl.config(bg=bg_color, fg=fg_color)
+            
+        self.dark_mode_chk.config(bg=bg_color, fg=fg_color, activebackground=bg_color, activeforeground=fg_color, selectcolor="#333333" if is_dark else "#ffffff")
+        self.src_entry.config(bg=widget_bg, fg=widget_fg, insertbackground=widget_fg, relief="solid", bd=1)
+        self.src_browse_btn.config(bg=btn_bg, fg=fg_color, activebackground="#444444" if is_dark else "#d0d0d0", activeforeground=fg_color, relief="flat", bd=0)
+        self.start_btn.config(bg="#28a745", fg="white", activebackground="#218838", activeforeground="white", relief="flat", bd=0)
+        self.clear_btn.config(bg="#dc3545", fg="white", activebackground="#c82333", activeforeground="white", relief="flat", bd=0)
 
     def rebuild_key_ui(self):
         for widget in self.folder_rows_frame.winfo_children():
@@ -148,28 +223,33 @@ class SetupDialog:
         self.key_buttons.clear()
         self.action_key_buttons.clear()
 
+        is_dark = self.dark_mode_var.get()
+        frame_bg = "#1e1e1e" if is_dark else "#f0f0f0"
+        fg_color = "#ffffff" if is_dark else "#000000"
+        widget_bg = "#252526" if is_dark else "#ffffff"
+
         # Folder slots UI
         for i in range(8):
             slot_id = f"slot_{i}"
             current_bind = self.current_keys[slot_id].upper()
             
-            frame = tk.Frame(self.folder_rows_frame)
+            frame = tk.Frame(self.folder_rows_frame, bg=frame_bg)
             frame.pack(fill="x", pady=2)
             
-            key_btn = tk.Button(frame, text=f"Key: [{current_bind}]", width=12, bg="#e0e0e0",
+            key_btn = tk.Button(frame, text=f"Key: [{current_bind}]", width=12, bg="#333333" if is_dark else "#e0e0e0", fg=fg_color, relief="flat", bd=0,
                                 command=lambda s=slot_id: self.start_listening_slot(s))
             key_btn.pack(side="left")
             ToolTip(key_btn, "Click to rebind shortcut key")
             self.key_buttons[slot_id] = key_btn
             
-            entry = tk.Entry(frame, width=45)
-            entry.pack(side="left", padx=5)
+            entry = tk.Entry(frame, width=45, bg=widget_bg, fg=fg_color, insertbackground=fg_color, relief="solid", bd=1)
+            entry.pack(side="left", padx=5, fill="x", expand=True)
             
             bound_key_char = self.current_keys[slot_id]
             if bound_key_char in self.dest_dirs:
                 entry.insert(0, self.dest_dirs[bound_key_char])
                 
-            btn = tk.Button(frame, text="Browse", command=lambda s=slot_id, e=entry: self.browse_dest(s, e))
+            btn = tk.Button(frame, text="Browse", bg="#333333" if is_dark else "#e0e0e0", fg=fg_color, relief="flat", bd=0, command=lambda s=slot_id, e=entry: self.browse_dest(s, e))
             btn.pack(side="left")
             ToolTip(btn, "Browse and select destination folder path")
             self.dest_entries[slot_id] = (entry, btn)
@@ -179,39 +259,43 @@ class SetupDialog:
         for action_id, action_label in actions:
             current_bind = self.current_action_keys[action_id].upper()
             
-            frame = tk.Frame(self.action_rows_frame)
+            frame = tk.Frame(self.action_rows_frame, bg=frame_bg)
             frame.pack(fill="x", pady=2)
             
-            key_btn = tk.Button(frame, text=f"Key: [{current_bind}]", width=12, bg="#e0e0e0",
+            key_btn = tk.Button(frame, text=f"Key: [{current_bind}]", width=12, bg="#333333" if is_dark else "#e0e0e0", fg=fg_color, relief="flat", bd=0,
                                 command=lambda a=action_id: self.start_listening_action(a))
             key_btn.pack(side="left")
             ToolTip(key_btn, "Click to rebind action shortcut key")
             self.action_key_buttons[action_id] = key_btn
             
-            lbl = tk.Label(frame, text=action_label, font=("Arial", 9))
+            lbl = tk.Label(frame, text=action_label, font=("Arial", 9), bg=frame_bg, fg=fg_color)
             lbl.pack(side="left", padx=10)
 
     def start_listening_slot(self, slot_id):
         self.listening_key = slot_id
         self.listening_action = None
+        is_dark = self.dark_mode_var.get()
+        default_bg = "#333333" if is_dark else "#e0e0e0"
         for s_id, btn in self.key_buttons.items():
             if s_id == slot_id:
-                btn.config(text="Press any key...", bg="#ffc107")
+                btn.config(text="Press any key...", bg="#ffc107", fg="black")
             else:
-                btn.config(relief="raised", bg="#e0e0e0")
+                btn.config(relief="flat", bg=default_bg)
         for a_id, btn in self.action_key_buttons.items():
-            btn.config(relief="raised", bg="#e0e0e0")
+            btn.config(relief="flat", bg=default_bg)
 
     def start_listening_action(self, action_id):
         self.listening_action = action_id
         self.listening_key = None
+        is_dark = self.dark_mode_var.get()
+        default_bg = "#333333" if is_dark else "#e0e0e0"
         for a_id, btn in self.action_key_buttons.items():
             if a_id == action_id:
-                btn.config(text="Press any key...", bg="#ffc107")
+                btn.config(text="Press any key...", bg="#ffc107", fg="black")
             else:
-                btn.config(relief="raised", bg="#e0e0e0")
+                btn.config(relief="flat", bg=default_bg)
         for s_id, btn in self.key_buttons.items():
-            btn.config(relief="raised", bg="#e0e0e0")
+            btn.config(relief="flat", bg=default_bg)
 
     def handle_key_listen(self, event):
         if not self.listening_key and not self.listening_action:
@@ -302,17 +386,21 @@ class SetupDialog:
                 dest_paths = config.get("destinations", {})
                 for key, path in dest_paths.items():
                     self.dest_dirs[key] = os.path.normpath(path)
+
+                self.dark_mode_var.set(config.get("dark_mode", False))
+                self.apply_theme()
                     
                 self.rebuild_key_ui()
             except Exception as e:
                 print(f"Failed to load config: {e}")
 
-    def save_config(self, src, dests, key_bindings, action_keys):
+    def save_config(self, src, dests, key_bindings, action_keys, dark_mode):
         config = {
             "source": os.path.normpath(src),
             "key_bindings": key_bindings,
             "action_keys": action_keys,
-            "destinations": {k: os.path.normpath(v) for k, v in dests.items()}
+            "destinations": {k: os.path.normpath(v) for k, v in dests.items()},
+            "dark_mode": dark_mode
         }
         try:
             with open(CONFIG_FILE, "w") as f:
@@ -326,6 +414,8 @@ class SetupDialog:
             self.dest_dirs.clear()
             self.current_keys = self.default_keys.copy()
             self.current_action_keys = self.default_action_keys.copy()
+            self.dark_mode_var.set(False)
+            self.apply_theme()
             self.rebuild_key_ui()
             
             if os.path.exists(CONFIG_FILE):
@@ -347,20 +437,21 @@ class SetupDialog:
             if val:
                 self.dest_dirs[bound_char] = os.path.normpath(val)
 
-        self.save_config(src, self.dest_dirs, self.current_keys, self.current_action_keys)
+        self.save_config(src, self.dest_dirs, self.current_keys, self.current_action_keys, self.dark_mode_var.get())
         self.root.destroy()
         
         main_root = tk.Tk()
-        MediaSorterApp(main_root, src, self.dest_dirs, self.current_keys, self.current_action_keys)
+        MediaSorterApp(main_root, src, self.dest_dirs, self.current_keys, self.current_action_keys, self.dark_mode_var.get())
         main_root.mainloop()
 
 class MediaSorterApp:
-    def __init__(self, root, src_folder, dest_dirs, key_bindings, action_keys):
+    def __init__(self, root, src_folder, dest_dirs, key_bindings, action_keys, dark_mode=False):
         self.root = root
         self.src_folder = os.path.normpath(src_folder)
         self.dest_dirs = dest_dirs
         self.key_bindings = key_bindings
         self.action_keys = action_keys
+        self.dark_mode = dark_mode
         
         valid_extensions = ('.png', '.jpg', '.jpeg', '.bmp', '.gif', '.webp', '.mp4', '.webm', '.mov', '.mkv')
         self.media_files = [os.path.normpath(os.path.join(self.src_folder, f)) for f in os.listdir(self.src_folder) 
@@ -396,41 +487,53 @@ class MediaSorterApp:
         self.root.title("Fast Media Sorter")
         self.root.geometry("1150x800")
         
-        self.folder_action_bar = tk.Frame(root, bg="#e8e8e8", height=40)
+        self.folder_action_bar = tk.Frame(root, height=40)
         self.folder_action_bar.pack(side="top", fill="x", padx=10, pady=(5, 5))
         self.folder_action_bar.pack_propagate(False)
         
-        self.nav_container = tk.Frame(root, bg="#2b2b2b")
+        self.nav_container = tk.Frame(root)
         self.nav_container.pack(side="bottom", fill="x")
         
-        self.nav_bar_top = tk.Frame(self.nav_container, bg="#2b2b2b", height=40)
+        self.nav_bar_top = tk.Frame(self.nav_container, height=40)
         self.nav_bar_top.pack(side="top", fill="x", padx=5, pady=(5, 0))
         self.nav_bar_top.pack_propagate(False)
+
+        self.open_file_btn = tk.Button(self.nav_bar_top, text="📄 Open File", command=self.open_current_file, 
+                                       font=("Arial", 9), relief="flat", bd=0)
+        self.open_file_btn.pack(side="left", padx=5, pady=5)
+        ToolTip(self.open_file_btn, "Open current media file with the operating system's default application")
         
         self.explorer_btn = tk.Button(self.nav_bar_top, text="📂 Open in Explorer", command=self.open_in_explorer, 
-                                      bg="#444444", fg="white", font=("Arial", 9), relief="flat", activebackground="#555555", activeforeground="white")
+                                      font=("Arial", 9), relief="flat", bd=0)
         self.explorer_btn.pack(side="left", padx=5, pady=5)
         ToolTip(self.explorer_btn, "Reveal current media file in system file explorer")
 
-        # Updated bottom trash bin button to use clean standard formatting
         self.trash_btn = tk.Button(self.nav_bar_top, text="🗑 Trash Bin", command=self.empty_local_trash, 
-                                   bg="#5a2323", fg="white", font=("Segoe UI Symbol", 9, "bold"), relief="flat", activebackground="#7a2e2e", activeforeground="white", padx=6)
+                                   font=("Segoe UI Symbol", 9, "bold"), relief="flat", bd=0, padx=6)
         self.trash_btn.pack(side="left", padx=5, pady=5)
         ToolTip(self.trash_btn, "Permanently delete files stored inside the local .trash folder")
 
-        self.restore_trash_btn = tk.Button(self.nav_bar_top, text="♻️ Restore All", command=self.restore_all_from_trash, 
-                                           bg="#3a4a3a", fg="white", font=("Arial", 9), relief="flat", activebackground="#4a5a4a", activeforeground="white")
+        self.restore_trash_btn = tk.Button(self.nav_bar_top, text="♻ Restore All", command=self.restore_all_from_trash, 
+                                           font=("Arial", 9), relief="flat", bd=0)
         self.restore_trash_btn.pack(side="left", padx=5, pady=5)
         ToolTip(self.restore_trash_btn, "Restore all files from local trash back to source folder")
 
-        self.counter_label = tk.Label(self.nav_bar_top, text="Moved: 0", bg="#2b2b2b", fg="#00FF7F", font=("Arial", 9, "bold"))
+        self.counter_label = tk.Label(self.nav_bar_top, text="Moved: 0", font=("Arial", 9, "bold"))
         self.counter_label.pack(side="left", padx=10, pady=5)
 
-        self.nav_bar_bottom = tk.Frame(self.nav_container, bg="#2b2b2b", height=40)
+        # Dark Mode Toggle on footer right
+        self.dark_mode_var = tk.BooleanVar(value=self.dark_mode)
+        self.footer_dark_chk = tk.Checkbutton(self.nav_bar_top, text="Dark Mode", variable=self.dark_mode_var, 
+                                              command=self.toggle_dark_mode)
+        self.footer_dark_chk.pack(side="right", padx=10, pady=5)
+        ToolTip(self.footer_dark_chk, "Toggle application dark mode")
+
+        self.nav_bar_bottom = tk.Frame(self.nav_container, height=40)
         self.nav_bar_bottom.pack(side="top", fill="x", padx=5, pady=(0, 5))
         self.nav_bar_bottom.pack_propagate(False)
 
-        tk.Label(self.nav_bar_bottom, text="Sort by:", bg="#2b2b2b", fg="white", font=("Arial", 9)).pack(side="left", padx=(5, 2), pady=5)
+        self.sort_label = tk.Label(self.nav_bar_bottom, text="Sort by:", font=("Arial", 9))
+        self.sort_label.pack(side="left", padx=(5, 2), pady=5)
         
         self.sort_var = tk.StringVar(value="Filename (A-Z)")
         self.sort_dropdown = ttk.Combobox(self.nav_bar_bottom, textvariable=self.sort_var, state="readonly", width=16,
@@ -441,30 +544,31 @@ class MediaSorterApp:
         self.sort_dropdown.bind("<<ComboboxSelected>>", self.on_sort_changed)
         self.root.bind("<Button-1>", self.check_focus_restore, add="+")
 
-        self.jump_label = tk.Label(self.nav_bar_bottom, text="", bg="#2b2b2b", fg="white", font=("Arial", 9, "bold"))
+        self.jump_label = tk.Label(self.nav_bar_bottom, text="", font=("Arial", 9, "bold"))
         self.jump_label.pack(side="right", padx=5, pady=5)
         
         self.jump_slider = tk.Scale(self.nav_bar_bottom, from_=1, to=max(1, len(self.media_files)), orient="horizontal", 
-                                    command=self.slider_moved, bg="#2b2b2b", fg="white", highlightthickness=0, troughcolor="#444444")
+                                    command=self.slider_moved, highlightthickness=0)
         self.jump_slider.pack(side="right", fill="x", expand=True, padx=5, pady=2)
         ToolTip(self.jump_slider, "Drag slider to quickly jump between media items")
         
-        tk.Label(self.nav_bar_bottom, text="Jump to file:", bg="#2b2b2b", fg="white", font=("Arial", 9)).pack(side="right", padx=5, pady=5)
+        self.jump_title_lbl = tk.Label(self.nav_bar_bottom, text="Jump to file:", font=("Arial", 9))
+        self.jump_title_lbl.pack(side="right", padx=5, pady=5)
 
-        self.container = tk.Frame(root, bg="black")
+        self.container = tk.Frame(root)
         self.container.pack(fill=tk.BOTH, expand=True, padx=10, pady=(5, 5))
         
-        self.canvas = tk.Canvas(self.container, bg="black", highlightthickness=0)
+        self.canvas = tk.Canvas(self.container, highlightthickness=0)
         self.canvas.pack(fill=tk.BOTH, expand=True)
         self.canvas.focus_set()
         
-        self.details_panel = tk.Frame(self.container, bg="#181818", relief="solid", bd=1, width=280)
+        self.details_panel = tk.Frame(self.container, relief="solid", bd=1, width=280)
         self.details_panel.pack_propagate(False)
         
-        self.details_title_lbl = tk.Label(self.details_panel, text="📋 File Details", bg="#181818", fg="#ffffff", font=("Arial", 9, "bold"))
+        self.details_title_lbl = tk.Label(self.details_panel, text="📋 File Details", font=("Arial", 9, "bold"))
         self.details_title_lbl.pack(anchor="w", padx=10, pady=(8, 4))
 
-        self.details_text_widget = tk.Text(self.details_panel, bg="#111111", fg="#00FF7F", font=("Consolas", 9), 
+        self.details_text_widget = tk.Text(self.details_panel, font=("Consolas", 9), 
                                            relief="flat", wrap="word", highlightthickness=0, bd=0)
         self.details_text_widget.pack(fill=tk.BOTH, expand=True, padx=8, pady=(0, 8))
         self.details_text_widget.config(state="disabled")
@@ -472,8 +576,7 @@ class MediaSorterApp:
         if self.show_details_panel:
             self.details_panel.place(x=10, y=10)
 
-        self.toast_label = tk.Label(self.container, text="", font=("Arial", 11, "bold"), 
-                                    bg="#222222", fg="#00FF7F", padx=10, pady=5)
+        self.toast_label = tk.Label(self.container, text="", font=("Arial", 11, "bold"), padx=10, pady=5)
 
         self.root.bind('<Key>', self.handle_keypress)
         self.root.bind('<KeyRelease>', self.handle_keyrelease)
@@ -487,51 +590,121 @@ class MediaSorterApp:
 
         self.update_trash_counter()
         self.load_current_media()
+        self.apply_theme_colors()
+
+    def toggle_dark_mode(self):
+        self.dark_mode = self.dark_mode_var.get()
+        self.apply_theme_colors()
+        self.save_current_config_to_file()
+
+    def apply_theme_colors(self):
+        is_dark = self.dark_mode
+        set_window_title_bar_theme(self.root, is_dark)
+        
+        main_bg = "#121212" if is_dark else "#f0f0f0"
+        bar_bg = "#1e1e1e" if is_dark else "#e8e8e8"
+        container_bg = "#181818" if is_dark else "#e8e8e8"
+        canvas_bg = "#121212" if is_dark else "#808080"
+        fg_color = "#ffffff" if is_dark else "#222222"
+        btn_bg = "#333333" if is_dark else "#d0d0d0"
+        
+        self.root.config(bg=main_bg)
+        self.container.config(bg=canvas_bg)
+        self.canvas.config(bg=canvas_bg)
+        self.folder_action_bar.config(bg=bar_bg)
+        self.nav_container.config(bg=container_bg)
+        self.nav_bar_top.config(bg=container_bg)
+        self.nav_bar_bottom.config(bg=container_bg)
+        
+        self.counter_label.config(bg=container_bg, fg="#008000" if not is_dark else "#00FF7F")
+        self.sort_label.config(bg=container_bg, fg=fg_color)
+        self.jump_title_lbl.config(bg=container_bg, fg=fg_color)
+        self.jump_label.config(bg=container_bg, fg=fg_color)
+        self.jump_slider.config(bg=container_bg, fg=fg_color, troughcolor="#333333" if is_dark else "#bbbbbb")
+        self.footer_dark_chk.config(bg=container_bg, fg=fg_color, activebackground=container_bg, activeforeground=fg_color, selectcolor="#333333" if is_dark else "#ffffff")
+
+        # Top nav buttons
+        self.open_file_btn.config(bg=btn_bg, fg=fg_color, activebackground="#444444" if is_dark else "#c0c0c0", activeforeground=fg_color, relief="flat", bd=0)
+        self.explorer_btn.config(bg=btn_bg, fg=fg_color, activebackground="#444444" if is_dark else "#c0c0c0", activeforeground=fg_color, relief="flat", bd=0)
+        self.trash_btn.config(bg="#5a2323" if is_dark else "#d9534f", fg="white", activebackground="#7a2e2e" if is_dark else "#c9302c", activeforeground="white", relief="flat", bd=0)
+        self.restore_trash_btn.config(bg="#3a4a3a" if is_dark else "#5cb85c", fg="white", activebackground="#4a5a4a" if is_dark else "#449d44", activeforeground="white", relief="flat", bd=0)
+
+        # Details Panel
+        self.details_panel.config(bg="#1e1e1e" if is_dark else "#ffffff", bd=1, relief="solid")
+        self.details_title_lbl.config(bg="#1e1e1e" if is_dark else "#ffffff", fg="#ffffff" if is_dark else "#000000")
+        self.details_text_widget.config(bg="#121212" if is_dark else "#f9f9f9", fg="#00FF7F" if is_dark else "#000000")
+        
+        # Toast
+        self.toast_label.config(bg="#222222", fg="#00FF7F")
+
+        self.update_folder_action_bar()
+
+    def save_current_config_to_file(self):
+        config = {
+            "source": self.src_folder,
+            "key_bindings": self.key_bindings,
+            "action_keys": self.action_keys,
+            "destinations": self.dest_dirs,
+            "dark_mode": self.dark_mode
+        }
+        try:
+            with open(CONFIG_FILE, "w") as f:
+                json.dump(config, f, indent=4)
+        except Exception as e:
+            print(f"Failed to save config: {e}")
 
     def update_folder_action_bar(self):
         for widget in self.folder_action_bar.winfo_children():
             widget.destroy()
 
-        prev_btn = tk.Button(self.folder_action_bar, text="⬅ Prev", bg="#d0d0d0", fg="#222222",
-                             font=("Arial", 9, "bold"), relief="raised", padx=6, pady=2,
-                             command=lambda: self.navigate(-1))
-        prev_btn.pack(side="left", padx=4, pady=6)
-        ToolTip(prev_btn, "Go to previous media item (Shortcut: Left Arrow)")
+        is_dark = self.dark_mode
+        bar_bg = "#1e1e1e" if is_dark else "#e8e8e8"
+        btn_bg = "#333333" if is_dark else "#d0d0d0"
+        btn_fg = "#ffffff" if is_dark else "#222222"
 
-        next_btn = tk.Button(self.folder_action_bar, text="Next ➡", bg="#d0d0d0", fg="#222222",
-                             font=("Arial", 9, "bold"), relief="raised", padx=6, pady=2,
-                             command=lambda: self.navigate(1))
-        next_btn.pack(side="left", padx=4, pady=6)
-        ToolTip(next_btn, "Go to next media item (Shortcut: Right Arrow)")
+        self.folder_action_bar.config(bg=bar_bg)
 
-        trash_action_btn = tk.Button(self.folder_action_bar, text="🗑 Trash", bg="#ffcccc", fg="#880000",
-                                     font=("Segoe UI Symbol", 9, "bold"), relief="raised", padx=8, pady=2,
-                                     command=self.delete_current_file)
-        trash_action_btn.pack(side="left", padx=4, pady=6)
-        ToolTip(trash_action_btn, "Move current file to local trash folder (Shortcut: Delete)")
-
-        undo_action_btn = tk.Button(self.folder_action_bar, text="↩ Undo", bg="#e0e0e0", fg="#222222",
-                                    font=("Arial", 9, "bold"), relief="raised", padx=6, pady=2,
-                                    command=self.undo_last_action)
-        undo_action_btn.pack(side="left", padx=4, pady=6)
-        ToolTip(undo_action_btn, "Undo last move or delete action (Shortcut: Backspace)")
-
-        details_toggle_btn = tk.Button(self.folder_action_bar, text="ℹ Details", bg="#d0d0d0" if self.show_details_panel else "#b0b0b0", fg="#222222",
-                                       font=("Arial", 9, "bold"), relief="raised", padx=6, pady=2,
+        # Details toggle button on leftmost side
+        details_toggle_btn = tk.Button(self.folder_action_bar, text="ℹ Details", bg=btn_bg if self.show_details_panel else ("#222222" if is_dark else "#b0b0b0"), fg=btn_fg,
+                                       font=("Arial", 9, "bold"), relief="flat", bd=0, padx=6, pady=2,
                                        command=self.toggle_details_panel)
         details_toggle_btn.pack(side="left", padx=(4, 12), pady=6)
         ToolTip(details_toggle_btn, "Show or hide the floating file details panel (Shortcut: [P])")
 
-        sep = tk.Frame(self.folder_action_bar, width=2, bg="#cccccc")
+        prev_btn = tk.Button(self.folder_action_bar, text="⬅ Prev", bg=btn_bg, fg=btn_fg,
+                             font=("Arial", 9, "bold"), relief="flat", bd=0, padx=6, pady=2,
+                             command=lambda: self.navigate(-1))
+        prev_btn.pack(side="left", padx=4, pady=6)
+        ToolTip(prev_btn, "Go to previous media item (Shortcut: Left Arrow)")
+
+        next_btn = tk.Button(self.folder_action_bar, text="Next ➡", bg=btn_bg, fg=btn_fg,
+                             font=("Arial", 9, "bold"), relief="flat", bd=0, padx=6, pady=2,
+                             command=lambda: self.navigate(1))
+        next_btn.pack(side="left", padx=4, pady=6)
+        ToolTip(next_btn, "Go to next media item (Shortcut: Right Arrow)")
+
+        trash_action_btn = tk.Button(self.folder_action_bar, text="🗑 Trash", bg="#5a2323" if is_dark else "#ffcccc", fg="#ff8888" if is_dark else "#880000",
+                                     font=("Segoe UI Symbol", 9, "bold"), relief="flat", bd=0, padx=8, pady=2,
+                                     command=self.delete_current_file)
+        trash_action_btn.pack(side="left", padx=4, pady=6)
+        ToolTip(trash_action_btn, "Move current file to local trash folder (Shortcut: Delete)")
+
+        undo_action_btn = tk.Button(self.folder_action_bar, text="↶ Undo", bg=btn_bg, fg=btn_fg,
+                                    font=("Segoe UI Symbol", 9, "bold"), relief="flat", bd=0, padx=6, pady=2,
+                                    command=self.undo_last_action)
+        undo_action_btn.pack(side="left", padx=4, pady=6)
+        ToolTip(undo_action_btn, "Undo last move or delete action (Shortcut: Backspace)")
+
+        sep = tk.Frame(self.folder_action_bar, width=2, bg="#444444" if is_dark else "#cccccc")
         sep.pack(side="left", fill="y", padx=2, pady=6)
 
         temp_text = "📁 Temp Folder"
         if self.last_temp_folder:
             temp_text = f"📁 Temp: {os.path.basename(self.last_temp_folder)}"
 
-        temp_btn = tk.Button(self.folder_action_bar, text=temp_text, bg="#cce5ff", fg="#004085", 
-                             font=("Arial", 9, "bold"), relief="raised", padx=8, pady=2)
-        ToolTip(temp_btn, "Click to change temp folder\nHold-press (0.5s) to send file instantly to temp folder\nShortcuts: Q = Send to temp | E = Pick new temp & send")
+        temp_btn = tk.Button(self.folder_action_bar, text=temp_text, bg="#1a365d" if is_dark else "#cce5ff", fg="#90cdf4" if is_dark else "#004085", 
+                             font=("Arial", 9, "bold"), relief="flat", bd=0, padx=8, pady=2)
+        ToolTip(temp_btn, "Click to change temp folder\nHold-press (0.5s) to send file instantly to temp folder\nShortcuts: E = Send to temp | Q = Pick new temp & send")
 
         temp_hold_timer = [None]
         def on_temp_press(event):
@@ -562,8 +735,8 @@ class MediaSorterApp:
                 mapping_found = True
                 folder_name = os.path.basename(v)
                 
-                btn = tk.Button(self.folder_action_bar, text=f"📁 {folder_name}", bg="#d0d0d0", fg="#222222", 
-                                font=("Arial", 9, "bold"), relief="raised", padx=8, pady=2)
+                btn = tk.Button(self.folder_action_bar, text=f"📁 {folder_name}", bg=btn_bg, fg=btn_fg, 
+                                font=("Arial", 9, "bold"), relief="flat", bd=0, padx=8, pady=2)
                 ToolTip(btn, f"Single-click to send file to {folder_name} (Shortcut: [{k.upper()}])\nHold-press to change folder")
                 
                 hold_timer = [None]
@@ -597,7 +770,7 @@ class MediaSorterApp:
                 btn.pack(side="left", padx=4, pady=6)
 
         if not mapping_found:
-            lbl = tk.Label(self.folder_action_bar, text="No destination folders assigned in configuration.", bg="#e8e8e8", fg="gray", font=("Arial", 9, "italic"))
+            lbl = tk.Label(self.folder_action_bar, text="No destination folders assigned in configuration.", bg=bar_bg, fg="#aaaaaa" if is_dark else "gray", font=("Arial", 9, "italic"))
             lbl.pack(side="left", padx=10, pady=8)
 
     def handle_temp_folder_action(self, force_prompt=False):
@@ -724,6 +897,21 @@ class MediaSorterApp:
         self.toast_label.config(text=message, fg=color)
         self.toast_label.place(relx=0.98, rely=0.95, anchor="se")
         self.toast_timer = self.root.after(1200, lambda: self.toast_label.place_forget())
+
+    def open_current_file(self):
+        if not (0 <= self.index < len(self.media_files)):
+            return
+        media_path = os.path.normpath(self.media_files[self.index])
+        if os.path.exists(media_path):
+            try:
+                if platform.system() == "Windows":
+                    os.startfile(media_path)
+                elif platform.system() == "Darwin":
+                    subprocess.run(['open', media_path])
+                else:
+                    subprocess.run(['xdg-open', media_path])
+            except Exception as e:
+                messagebox.showerror("Error", f"Could not open file:\n{e}")
 
     def open_in_explorer(self):
         if not (0 <= self.index < len(self.media_files)):
@@ -1046,12 +1234,12 @@ class MediaSorterApp:
             self.undo_last_action()
         elif key in ['delete', 'backspace'] and event.keysym.lower() == 'delete':
             self.delete_current_file()
-        elif key == 'q':
+        elif key == 'e':
             if not self.last_temp_folder:
                 self.handle_temp_folder_action(force_prompt=True)
             else:
                 self.execute_move_to_path(self.last_temp_folder, "Temp Folder")
-        elif key == 'e':
+        elif key == 'q':
             self.handle_temp_folder_action(force_prompt=True)
         elif key == 'p':
             self.toggle_details_panel()
