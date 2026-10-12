@@ -17,6 +17,48 @@ else:
 
 CONFIG_FILE = os.path.join(BASE_DIR, "sorter_config.json")
 
+class ToolTip:
+    """Helper class to create lightweight hover tooltips for Tkinter widgets."""
+    def __init__(self, widget, text):
+        self.widget = widget
+        self.text = text
+        self.tip_window = None
+        self.id = None
+        self.widget.bind("<Enter>", self.schedule)
+        self.widget.bind("<Leave>", self.hide)
+        self.widget.bind("<ButtonPress>", self.hide)
+
+    def schedule(self, event=None):
+        self.unschedule()
+        self.id = self.widget.after(500, self.show)
+
+    def unschedule(self):
+        id_val = self.id
+        self.id = None
+        if id_val:
+            self.widget.after_cancel(id_val)
+
+    def show(self, event=None):
+        if self.tip_window or not self.text:
+            return
+        try:
+            x = self.widget.winfo_rootx() + 20
+            y = self.widget.winfo_rooty() + self.widget.winfo_height() + 5
+            self.tip_window = tw = tk.Toplevel(self.widget)
+            tw.wm_overrideredirect(True)
+            tw.wm_geometry(f"+{x}+{y}")
+            label = tk.Label(tw, text=self.text, background="#ffffe0", foreground="#000000",
+                             relief="solid", borderwidth=1, font=("Arial", 8), padx=4, pady=2)
+            label.pack(ipadx=1)
+        except Exception:
+            pass
+
+    def hide(self, event=None):
+        self.unschedule()
+        if self.tip_window:
+            self.tip_window.destroy()
+            self.tip_window = None
+
 class SetupDialog:
     def __init__(self, root):
         self.root = root
@@ -57,7 +99,9 @@ class SetupDialog:
         
         self.src_entry = tk.Entry(src_frame, width=45)
         self.src_entry.pack(side="left", padx=(0, 5))
-        tk.Button(src_frame, text="Browse Source", command=self.browse_source).pack(side="left")
+        src_browse_btn = tk.Button(src_frame, text="Browse Source", command=self.browse_source)
+        src_browse_btn.pack(side="left")
+        ToolTip(src_browse_btn, "Select the folder containing unsorted media files")
         
         # --- Destination Folders & Key Rebinding Section ---
         tk.Label(root, text="Assign Folders & Rebind Folder Keys (Click button to change key):", font=("Arial", 10, "bold")).pack(anchor="w", padx=20, pady=(15, 0))
@@ -80,11 +124,15 @@ class SetupDialog:
         btn_frame = tk.Frame(root)
         btn_frame.pack(pady=10)
 
-        tk.Button(btn_frame, text="Start Sorting", bg="#28a745", fg="white", font=("Arial", 11, "bold"), 
-                  padx=15, pady=5, command=self.validate_and_start).pack(side="left", padx=10)
+        start_btn = tk.Button(btn_frame, text="Start Sorting", bg="#28a745", fg="white", font=("Arial", 11, "bold"), 
+                              padx=15, pady=5, command=self.validate_and_start)
+        start_btn.pack(side="left", padx=10)
+        ToolTip(start_btn, "Save configuration and launch the sorter interface")
         
-        tk.Button(btn_frame, text="Clear Saved Folders", bg="#dc3545", fg="white", font=("Arial", 10), 
-                  padx=10, pady=5, command=self.clear_config).pack(side="left", padx=10)
+        clear_btn = tk.Button(btn_frame, text="Clear Saved Folders", bg="#dc3545", fg="white", font=("Arial", 10), 
+                              padx=10, pady=5, command=self.clear_config)
+        clear_btn.pack(side="left", padx=10)
+        ToolTip(clear_btn, "Clear all saved folder assignments and custom key bindings")
 
         # Load saved config on startup
         self.load_saved_config()
@@ -111,6 +159,7 @@ class SetupDialog:
             key_btn = tk.Button(frame, text=f"Key: [{current_bind}]", width=12, bg="#e0e0e0",
                                 command=lambda s=slot_id: self.start_listening_slot(s))
             key_btn.pack(side="left")
+            ToolTip(key_btn, "Click to rebind shortcut key")
             self.key_buttons[slot_id] = key_btn
             
             entry = tk.Entry(frame, width=45)
@@ -122,6 +171,7 @@ class SetupDialog:
                 
             btn = tk.Button(frame, text="Browse", command=lambda s=slot_id, e=entry: self.browse_dest(s, e))
             btn.pack(side="left")
+            ToolTip(btn, "Browse and select destination folder path")
             self.dest_entries[slot_id] = (entry, btn)
 
         # Action slots UI (Skip and Undo)
@@ -135,6 +185,7 @@ class SetupDialog:
             key_btn = tk.Button(frame, text=f"Key: [{current_bind}]", width=12, bg="#e0e0e0",
                                 command=lambda a=action_id: self.start_listening_action(a))
             key_btn.pack(side="left")
+            ToolTip(key_btn, "Click to rebind action shortcut key")
             self.action_key_buttons[action_id] = key_btn
             
             lbl = tk.Label(frame, text=action_label, font=("Arial", 9))
@@ -358,14 +409,17 @@ class MediaSorterApp:
         self.explorer_btn = tk.Button(self.nav_bar_top, text="📂 Open in Explorer", command=self.open_in_explorer, 
                                       bg="#444444", fg="white", font=("Arial", 9), relief="flat", activebackground="#555555", activeforeground="white")
         self.explorer_btn.pack(side="left", padx=5, pady=5)
+        ToolTip(self.explorer_btn, "Reveal current media file in system file explorer")
 
         self.trash_btn = tk.Button(self.nav_bar_top, text="🗑️ Empty Local Trash", command=self.empty_local_trash, 
                                    bg="#5a2323", fg="white", font=("Arial", 9), relief="flat", activebackground="#7a2e2e", activeforeground="white")
         self.trash_btn.pack(side="left", padx=5, pady=5)
+        ToolTip(self.trash_btn, "Permanently delete files stored inside the local .trash folder")
 
         self.restore_trash_btn = tk.Button(self.nav_bar_top, text="♻️ Restore All", command=self.restore_all_from_trash, 
                                            bg="#3a4a3a", fg="white", font=("Arial", 9), relief="flat", activebackground="#4a5a4a", activeforeground="white")
         self.restore_trash_btn.pack(side="left", padx=5, pady=5)
+        ToolTip(self.restore_trash_btn, "Restore all files from local trash back to source folder")
 
         self.counter_label = tk.Label(self.nav_bar_top, text="Moved: 0", bg="#2b2b2b", fg="#00FF7F", font=("Arial", 9, "bold"))
         self.counter_label.pack(side="left", padx=10, pady=5)
@@ -392,6 +446,7 @@ class MediaSorterApp:
         self.jump_slider = tk.Scale(self.nav_bar_bottom, from_=1, to=max(1, len(self.media_files)), orient="horizontal", 
                                     command=self.slider_moved, bg="#2b2b2b", fg="white", highlightthickness=0, troughcolor="#444444")
         self.jump_slider.pack(side="right", fill="x", expand=True, padx=5, pady=2)
+        ToolTip(self.jump_slider, "Drag slider to quickly jump between media items")
         
         tk.Label(self.nav_bar_bottom, text="Jump to file:", bg="#2b2b2b", fg="white", font=("Arial", 9)).pack(side="right", padx=5, pady=5)
 
@@ -434,6 +489,19 @@ class MediaSorterApp:
         self.update_trash_counter()
         self.load_current_media()
 
+    def save_current_config_to_file(self):
+        config = {
+            "source": os.path.normpath(self.src_folder),
+            "key_bindings": self.key_bindings,
+            "action_keys": self.action_keys,
+            "destinations": {k: os.path.normpath(v) for k, v in self.dest_dirs.items()}
+        }
+        try:
+            with open(CONFIG_FILE, "w") as f:
+                json.dump(config, f, indent=4)
+        except Exception as e:
+            print(f"Failed to save config: {e}")
+
     def update_folder_action_bar(self):
         for widget in self.folder_action_bar.winfo_children():
             widget.destroy()
@@ -443,25 +511,36 @@ class MediaSorterApp:
                              font=("Arial", 9, "bold"), relief="raised", padx=6, pady=2,
                              command=lambda: self.navigate(-1))
         prev_btn.pack(side="left", padx=4, pady=6)
+        ToolTip(prev_btn, "Go to previous media item (Left Arrow)")
 
         next_btn = tk.Button(self.folder_action_bar, text="Next ➡", bg="#d0d0d0", fg="#222222",
                              font=("Arial", 9, "bold"), relief="raised", padx=6, pady=2,
                              command=lambda: self.navigate(1))
         next_btn.pack(side="left", padx=4, pady=6)
+        ToolTip(next_btn, "Go to next media item (Right Arrow)")
 
         trash_action_btn = tk.Button(self.folder_action_bar, text="🗑️ Trash", bg="#ffcccc", fg="#880000",
                                      font=("Arial", 9, "bold"), relief="raised", padx=6, pady=2,
                                      command=self.delete_current_file)
         trash_action_btn.pack(side="left", padx=4, pady=6)
+        ToolTip(trash_action_btn, "Move current file to local trash folder (Delete)")
 
         details_toggle_btn = tk.Button(self.folder_action_bar, text="ℹ️ Details", bg="#d0d0d0" if self.show_details_panel else "#b0b0b0", fg="#222222",
                                        font=("Arial", 9, "bold"), relief="raised", padx=6, pady=2,
                                        command=self.toggle_details_panel)
         details_toggle_btn.pack(side="left", padx=(4, 12), pady=6)
+        ToolTip(details_toggle_btn, "Show or hide the floating file details panel")
 
         # Add separator line/frame
         sep = tk.Frame(self.folder_action_bar, width=2, bg="#cccccc")
         sep.pack(side="left", fill="y", padx=2, pady=6)
+
+        # Temporary folder button on the rightmost side
+        temp_btn = tk.Button(self.folder_action_bar, text="📁 [Temp Folder]", bg="#cce5ff", fg="#004085", 
+                             font=("Arial", 9, "bold"), relief="raised", padx=8, pady=2,
+                             command=self.handle_temp_folder_action)
+        temp_btn.pack(side="right", padx=(12, 4), pady=6)
+        ToolTip(temp_btn, "Click to pick a temporary destination folder and move current file there")
 
         mapping_found = False
         for slot_id, k in self.key_bindings.items():
@@ -469,15 +548,70 @@ class MediaSorterApp:
             if v:
                 mapping_found = True
                 folder_name = os.path.basename(v)
-                btn_text = f"📁 [{k.upper()}] {folder_name}"
-                btn = tk.Button(self.folder_action_bar, text=btn_text, bg="#d0d0d0", fg="#222222", 
-                                font=("Arial", 9, "bold"), relief="raised", padx=8, pady=2,
-                                command=lambda key_char=k: self.handle_move_action(key_char))
+                
+                btn = tk.Button(self.folder_action_bar, text=f"📁 [{k.upper()}] {folder_name}", bg="#d0d0d0", fg="#222222", 
+                                font=("Arial", 9, "bold"), relief="raised", padx=8, pady=2)
+                ToolTip(btn, f"Single-click to send file to {folder_name} (Shortcut: [{k.upper()}])\nHold-press to change folder")
+                
+                hold_timer = [None]
+                
+                def make_press_handlers(key_char):
+                    def on_press(event):
+                        hold_timer[0] = self.folder_action_bar.after(500, lambda: on_long_press(key_char))
+                        
+                    def on_release(event):
+                        if hold_timer[0]:
+                            self.folder_action_bar.after_cancel(hold_timer[0])
+                            hold_timer[0] = None
+                            self.handle_move_action(key_char)
+                            
+                    return on_press, on_release
+                
+                def on_long_press(key_char):
+                    hold_timer[0] = None
+                    path = filedialog.askdirectory(title=f"Select New Folder for Key [{key_char.upper()}]")
+                    if path:
+                        path = os.path.normpath(path)
+                        self.dest_dirs[key_char] = path
+                        self.save_current_config_to_file()
+                        self.update_folder_action_bar()
+                        self.show_toast(f"Updated folder for [{key_char.upper()}]", color="#00FF7F")
+                    self.canvas.focus_set()
+
+                p_handler, r_handler = make_press_handlers(k)
+                btn.bind("<ButtonPress-1>", p_handler)
+                btn.bind("<ButtonRelease-1>", r_handler)
                 btn.pack(side="left", padx=4, pady=6)
 
         if not mapping_found:
             lbl = tk.Label(self.folder_action_bar, text="No destination folders assigned in configuration.", bg="#e8e8e8", fg="gray", font=("Arial", 9, "italic"))
             lbl.pack(side="left", padx=10, pady=8)
+
+    def handle_temp_folder_action(self):
+        if not (0 <= self.index < len(self.media_files)):
+            return
+        path = filedialog.askdirectory(title="Select Temporary Destination Folder")
+        if path:
+            path = os.path.normpath(path)
+            self.stop_video_stream()
+            current_media_path = os.path.normpath(self.media_files[self.index])
+            os.makedirs(path, exist_ok=True)
+            folder_name = os.path.basename(path)
+            dest_path = os.path.normpath(os.path.join(path, os.path.basename(current_media_path)))
+            
+            shutil.move(current_media_path, dest_path)
+            self.history.append((current_media_path, self.index, dest_path, 'move'))
+            self.media_files.pop(self.index)
+            
+            self.moved_count += 1
+            self.counter_label.config(text=f"Moved: {self.moved_count}")
+            
+            if self.index >= len(self.media_files) and self.index > 0:
+                self.index = len(self.media_files) - 1
+                
+            self.show_toast(f"Moved to Temp Folder: {folder_name}", color="#00FF7F")
+            self.load_current_media()
+        self.canvas.focus_set()
 
     def toggle_details_panel(self):
         self.show_details_panel = not self.show_details_panel
@@ -494,13 +628,10 @@ class MediaSorterApp:
         self.details_text_widget.insert("1.0", info_text)
         self.details_text_widget.config(state="disabled")
         
-        # Dynamically calculate required height based on total text lines and wrap count
         self.details_text_widget.update_idletasks()
-        # Count actual lines or query index of last text line
         end_index = self.details_text_widget.index("end-1c")
         total_lines = int(end_index.split('.')[0])
         
-        # Approximate line height in pixels for Consolas 9 font (~16px) + padding overhead
         line_height = 16
         header_padding = 35
         computed_height = max(120, (total_lines * line_height) + header_padding)
@@ -704,6 +835,10 @@ class MediaSorterApp:
             filename = os.path.basename(media_path)
             ext = os.path.splitext(filename)[1].lower()
             
+            # Update window title with folder name and progress
+            folder_name = os.path.basename(self.src_folder)
+            self.root.title(f"Sorting: {folder_name} {self.index + 1}/{len(self.media_files)}")
+            
             skip_key_display = self.action_keys.get('skip', 'space').upper()
             self.status_label.config(text=f"[{self.index + 1}/{len(self.media_files)}] {filename} | [{skip_key_display}: Skip] | [Delete: Move to Local Trash]")
             
@@ -791,6 +926,7 @@ class MediaSorterApp:
                 
         elif self.index >= len(self.media_files):
             undo_key_display = self.action_keys.get('undo', 'backspace').upper()
+            self.root.title("Fast Media Sorter - Complete")
             self.status_label.config(text=f"Sorting Complete! (Use Left Arrow to review or {undo_key_display} to undo)")
             self.update_details_box("Queue finished.\nAll items processed.")
             self.canvas.delete("all")
