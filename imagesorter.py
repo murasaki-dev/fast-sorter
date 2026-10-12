@@ -373,6 +373,13 @@ class MediaSorterApp:
         self.moved_count = 0
         self.toast_timer = None
         self.anim_job = None
+        self.last_temp_folder = None
+        
+        self.pressed_keys = set()
+        
+        self.scroll_job = None
+        self.scroll_direction = 0
+        self.scroll_start_time = 0
         
         self.cap = None
         self.video_fps = 30
@@ -389,19 +396,13 @@ class MediaSorterApp:
         self.root.title("Fast Media Sorter")
         self.root.geometry("1150x800")
         
-        self.status_label = tk.Label(root, text="", font=("Arial", 9), bg="#f0f0f0", anchor="w")
-        self.status_label.pack(side="top", fill="x", padx=10, pady=(5, 2))
-        
-        # Clickable Action Bar (Top Toolbar for Mouse Users)
         self.folder_action_bar = tk.Frame(root, bg="#e8e8e8", height=40)
-        self.folder_action_bar.pack(side="top", fill="x", padx=10, pady=(0, 5))
+        self.folder_action_bar.pack(side="top", fill="x", padx=10, pady=(5, 5))
         self.folder_action_bar.pack_propagate(False)
         
-        # Two-tier responsive bottom container
         self.nav_container = tk.Frame(root, bg="#2b2b2b")
         self.nav_container.pack(side="bottom", fill="x")
         
-        # Top row of bottom toolbar (Actions & Counters)
         self.nav_bar_top = tk.Frame(self.nav_container, bg="#2b2b2b", height=40)
         self.nav_bar_top.pack(side="top", fill="x", padx=5, pady=(5, 0))
         self.nav_bar_top.pack_propagate(False)
@@ -411,8 +412,9 @@ class MediaSorterApp:
         self.explorer_btn.pack(side="left", padx=5, pady=5)
         ToolTip(self.explorer_btn, "Reveal current media file in system file explorer")
 
-        self.trash_btn = tk.Button(self.nav_bar_top, text="🗑️ Empty Local Trash", command=self.empty_local_trash, 
-                                   bg="#5a2323", fg="white", font=("Arial", 9), relief="flat", activebackground="#7a2e2e", activeforeground="white")
+        # Updated bottom trash bin button to use clean standard formatting
+        self.trash_btn = tk.Button(self.nav_bar_top, text="🗑 Trash Bin", command=self.empty_local_trash, 
+                                   bg="#5a2323", fg="white", font=("Segoe UI Symbol", 9, "bold"), relief="flat", activebackground="#7a2e2e", activeforeground="white", padx=6)
         self.trash_btn.pack(side="left", padx=5, pady=5)
         ToolTip(self.trash_btn, "Permanently delete files stored inside the local .trash folder")
 
@@ -424,7 +426,6 @@ class MediaSorterApp:
         self.counter_label = tk.Label(self.nav_bar_top, text="Moved: 0", bg="#2b2b2b", fg="#00FF7F", font=("Arial", 9, "bold"))
         self.counter_label.pack(side="left", padx=10, pady=5)
 
-        # Bottom row of bottom toolbar (Sorting & Jumping)
         self.nav_bar_bottom = tk.Frame(self.nav_container, bg="#2b2b2b", height=40)
         self.nav_bar_bottom.pack(side="top", fill="x", padx=5, pady=(0, 5))
         self.nav_bar_bottom.pack_propagate(False)
@@ -450,7 +451,6 @@ class MediaSorterApp:
         
         tk.Label(self.nav_bar_bottom, text="Jump to file:", bg="#2b2b2b", fg="white", font=("Arial", 9)).pack(side="right", padx=5, pady=5)
 
-        # Full-width canvas container that spans the entire window width
         self.container = tk.Frame(root, bg="black")
         self.container.pack(fill=tk.BOTH, expand=True, padx=10, pady=(5, 5))
         
@@ -458,7 +458,6 @@ class MediaSorterApp:
         self.canvas.pack(fill=tk.BOTH, expand=True)
         self.canvas.focus_set()
         
-        # Floating Details Overlay (Dynamically auto-resizes to fit contents completely)
         self.details_panel = tk.Frame(self.container, bg="#181818", relief="solid", bd=1, width=280)
         self.details_panel.pack_propagate(False)
         
@@ -477,6 +476,7 @@ class MediaSorterApp:
                                     bg="#222222", fg="#00FF7F", padx=10, pady=5)
 
         self.root.bind('<Key>', self.handle_keypress)
+        self.root.bind('<KeyRelease>', self.handle_keyrelease)
         self.canvas.bind('<MouseWheel>', self.on_zoom)
         self.canvas.bind('<Button-4>', self.on_zoom)
         self.canvas.bind('<Button-5>', self.on_zoom)
@@ -485,62 +485,75 @@ class MediaSorterApp:
         self.canvas.bind('<Configure>', self.on_canvas_resize)
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
-        # Initialize trash counter on start
         self.update_trash_counter()
         self.load_current_media()
-
-    def save_current_config_to_file(self):
-        config = {
-            "source": os.path.normpath(self.src_folder),
-            "key_bindings": self.key_bindings,
-            "action_keys": self.action_keys,
-            "destinations": {k: os.path.normpath(v) for k, v in self.dest_dirs.items()}
-        }
-        try:
-            with open(CONFIG_FILE, "w") as f:
-                json.dump(config, f, indent=4)
-        except Exception as e:
-            print(f"Failed to save config: {e}")
 
     def update_folder_action_bar(self):
         for widget in self.folder_action_bar.winfo_children():
             widget.destroy()
 
-        # Add Nav Buttons, Trash & Details Toggle to the top toolbar
         prev_btn = tk.Button(self.folder_action_bar, text="⬅ Prev", bg="#d0d0d0", fg="#222222",
                              font=("Arial", 9, "bold"), relief="raised", padx=6, pady=2,
                              command=lambda: self.navigate(-1))
         prev_btn.pack(side="left", padx=4, pady=6)
-        ToolTip(prev_btn, "Go to previous media item (Left Arrow)")
+        ToolTip(prev_btn, "Go to previous media item (Shortcut: Left Arrow)")
 
         next_btn = tk.Button(self.folder_action_bar, text="Next ➡", bg="#d0d0d0", fg="#222222",
                              font=("Arial", 9, "bold"), relief="raised", padx=6, pady=2,
                              command=lambda: self.navigate(1))
         next_btn.pack(side="left", padx=4, pady=6)
-        ToolTip(next_btn, "Go to next media item (Right Arrow)")
+        ToolTip(next_btn, "Go to next media item (Shortcut: Right Arrow)")
 
-        trash_action_btn = tk.Button(self.folder_action_bar, text="🗑️ Trash", bg="#ffcccc", fg="#880000",
-                                     font=("Arial", 9, "bold"), relief="raised", padx=6, pady=2,
+        trash_action_btn = tk.Button(self.folder_action_bar, text="🗑 Trash", bg="#ffcccc", fg="#880000",
+                                     font=("Segoe UI Symbol", 9, "bold"), relief="raised", padx=8, pady=2,
                                      command=self.delete_current_file)
         trash_action_btn.pack(side="left", padx=4, pady=6)
-        ToolTip(trash_action_btn, "Move current file to local trash folder (Delete)")
+        ToolTip(trash_action_btn, "Move current file to local trash folder (Shortcut: Delete)")
 
-        details_toggle_btn = tk.Button(self.folder_action_bar, text="ℹ️ Details", bg="#d0d0d0" if self.show_details_panel else "#b0b0b0", fg="#222222",
+        undo_action_btn = tk.Button(self.folder_action_bar, text="↩ Undo", bg="#e0e0e0", fg="#222222",
+                                    font=("Arial", 9, "bold"), relief="raised", padx=6, pady=2,
+                                    command=self.undo_last_action)
+        undo_action_btn.pack(side="left", padx=4, pady=6)
+        ToolTip(undo_action_btn, "Undo last move or delete action (Shortcut: Backspace)")
+
+        details_toggle_btn = tk.Button(self.folder_action_bar, text="ℹ Details", bg="#d0d0d0" if self.show_details_panel else "#b0b0b0", fg="#222222",
                                        font=("Arial", 9, "bold"), relief="raised", padx=6, pady=2,
                                        command=self.toggle_details_panel)
         details_toggle_btn.pack(side="left", padx=(4, 12), pady=6)
-        ToolTip(details_toggle_btn, "Show or hide the floating file details panel")
+        ToolTip(details_toggle_btn, "Show or hide the floating file details panel (Shortcut: [P])")
 
-        # Add separator line/frame
         sep = tk.Frame(self.folder_action_bar, width=2, bg="#cccccc")
         sep.pack(side="left", fill="y", padx=2, pady=6)
 
-        # Temporary folder button on the rightmost side
-        temp_btn = tk.Button(self.folder_action_bar, text="📁 [Temp Folder]", bg="#cce5ff", fg="#004085", 
-                             font=("Arial", 9, "bold"), relief="raised", padx=8, pady=2,
-                             command=self.handle_temp_folder_action)
+        temp_text = "📁 Temp Folder"
+        if self.last_temp_folder:
+            temp_text = f"📁 Temp: {os.path.basename(self.last_temp_folder)}"
+
+        temp_btn = tk.Button(self.folder_action_bar, text=temp_text, bg="#cce5ff", fg="#004085", 
+                             font=("Arial", 9, "bold"), relief="raised", padx=8, pady=2)
+        ToolTip(temp_btn, "Click to change temp folder\nHold-press (0.5s) to send file instantly to temp folder\nShortcuts: Q = Send to temp | E = Pick new temp & send")
+
+        temp_hold_timer = [None]
+        def on_temp_press(event):
+            temp_hold_timer[0] = self.folder_action_bar.after(500, on_temp_long_press)
+
+        def on_temp_release(event):
+            if temp_hold_timer[0]:
+                self.folder_action_bar.after_cancel(temp_hold_timer[0])
+                temp_hold_timer[0] = None
+                self.handle_temp_folder_action(force_prompt=True)
+
+        def on_temp_long_press():
+            temp_hold_timer[0] = None
+            if not self.last_temp_folder:
+                self.handle_temp_folder_action(force_prompt=True)
+            else:
+                self.execute_move_to_path(self.last_temp_folder, "Temp Folder")
+            self.canvas.focus_set()
+
+        temp_btn.bind("<ButtonPress-1>", on_temp_press)
+        temp_btn.bind("<ButtonRelease-1>", on_temp_release)
         temp_btn.pack(side="right", padx=(12, 4), pady=6)
-        ToolTip(temp_btn, "Click to pick a temporary destination folder and move current file there")
 
         mapping_found = False
         for slot_id, k in self.key_bindings.items():
@@ -549,7 +562,7 @@ class MediaSorterApp:
                 mapping_found = True
                 folder_name = os.path.basename(v)
                 
-                btn = tk.Button(self.folder_action_bar, text=f"📁 [{k.upper()}] {folder_name}", bg="#d0d0d0", fg="#222222", 
+                btn = tk.Button(self.folder_action_bar, text=f"📁 {folder_name}", bg="#d0d0d0", fg="#222222", 
                                 font=("Arial", 9, "bold"), relief="raised", padx=8, pady=2)
                 ToolTip(btn, f"Single-click to send file to {folder_name} (Shortcut: [{k.upper()}])\nHold-press to change folder")
                 
@@ -587,31 +600,42 @@ class MediaSorterApp:
             lbl = tk.Label(self.folder_action_bar, text="No destination folders assigned in configuration.", bg="#e8e8e8", fg="gray", font=("Arial", 9, "italic"))
             lbl.pack(side="left", padx=10, pady=8)
 
-    def handle_temp_folder_action(self):
+    def handle_temp_folder_action(self, force_prompt=False):
         if not (0 <= self.index < len(self.media_files)):
             return
-        path = filedialog.askdirectory(title="Select Temporary Destination Folder")
-        if path:
-            path = os.path.normpath(path)
-            self.stop_video_stream()
-            current_media_path = os.path.normpath(self.media_files[self.index])
-            os.makedirs(path, exist_ok=True)
-            folder_name = os.path.basename(path)
-            dest_path = os.path.normpath(os.path.join(path, os.path.basename(current_media_path)))
             
-            shutil.move(current_media_path, dest_path)
-            self.history.append((current_media_path, self.index, dest_path, 'move'))
-            self.media_files.pop(self.index)
-            
-            self.moved_count += 1
-            self.counter_label.config(text=f"Moved: {self.moved_count}")
-            
-            if self.index >= len(self.media_files) and self.index > 0:
-                self.index = len(self.media_files) - 1
-                
-            self.show_toast(f"Moved to Temp Folder: {folder_name}", color="#00FF7F")
-            self.load_current_media()
+        if force_prompt or not self.last_temp_folder:
+            path = filedialog.askdirectory(title="Select Temporary Destination Folder")
+            if path:
+                path = os.path.normpath(path)
+                self.last_temp_folder = path
+                self.update_folder_action_bar()
+                self.execute_move_to_path(path, "Temp Folder")
+        else:
+            self.execute_move_to_path(self.last_temp_folder, "Temp Folder")
         self.canvas.focus_set()
+
+    def execute_move_to_path(self, path, label_name):
+        if not (0 <= self.index < len(self.media_files)):
+            return
+        self.stop_video_stream()
+        current_media_path = os.path.normpath(self.media_files[self.index])
+        os.makedirs(path, exist_ok=True)
+        folder_name = os.path.basename(path)
+        dest_path = os.path.normpath(os.path.join(path, os.path.basename(current_media_path)))
+        
+        shutil.move(current_media_path, dest_path)
+        self.history.append((current_media_path, self.index, dest_path, 'move'))
+        self.media_files.pop(self.index)
+        
+        self.moved_count += 1
+        self.counter_label.config(text=f"Moved: {self.moved_count}")
+        
+        if self.index >= len(self.media_files) and self.index > 0:
+            self.index = len(self.media_files) - 1
+            
+        self.show_toast(f"Moved to {label_name}: {folder_name}", color="#00FF7F")
+        self.load_current_media()
 
     def toggle_details_panel(self):
         self.show_details_panel = not self.show_details_panel
@@ -655,9 +679,9 @@ class MediaSorterApp:
                 count = 0
         
         if count > 0:
-            self.trash_btn.config(text=f"🗑️ Empty Local Trash ({count})")
+            self.trash_btn.config(text=f"🗑 Trash Bin ({count})")
         else:
-            self.trash_btn.config(text="🗑️ Empty Local Trash")
+            self.trash_btn.config(text="🗑 Trash Bin")
 
     def check_focus_restore(self, event):
         current_focus = self.root.focus_get()
@@ -835,12 +859,8 @@ class MediaSorterApp:
             filename = os.path.basename(media_path)
             ext = os.path.splitext(filename)[1].lower()
             
-            # Update window title with folder name and progress
             folder_name = os.path.basename(self.src_folder)
-            self.root.title(f"Sorting: {folder_name} {self.index + 1}/{len(self.media_files)}")
-            
-            skip_key_display = self.action_keys.get('skip', 'space').upper()
-            self.status_label.config(text=f"[{self.index + 1}/{len(self.media_files)}] {filename} | [{skip_key_display}: Skip] | [Delete: Move to Local Trash]")
+            self.root.title(f"Sorting: {folder_name} {self.index + 1}/{len(self.media_files)} - {filename}")
             
             self.jump_slider.config(to=max(1, len(self.media_files)))
             self.jump_slider.set(self.index + 1)
@@ -925,9 +945,7 @@ class MediaSorterApp:
                                         text=f"Error loading media:\n{e}", fill="white", font=("Arial", 12))
                 
         elif self.index >= len(self.media_files):
-            undo_key_display = self.action_keys.get('undo', 'backspace').upper()
             self.root.title("Fast Media Sorter - Complete")
-            self.status_label.config(text=f"Sorting Complete! (Use Left Arrow to review or {undo_key_display} to undo)")
             self.update_details_box("Queue finished.\nAll items processed.")
             self.canvas.delete("all")
             self.canvas.create_text(self.canvas.winfo_width()//2, self.canvas.winfo_height()//2, 
@@ -1012,8 +1030,13 @@ class MediaSorterApp:
             return
             
         key = event.keysym.lower()
-        active_bound_keys = list(self.dest_dirs.keys())
         
+        if key not in ['prior', 'next']:
+            if key in self.pressed_keys:
+                return
+            self.pressed_keys.add(key)
+        
+        active_bound_keys = list(self.dest_dirs.keys())
         skip_key = self.action_keys.get('skip', 'space').lower()
         undo_key = self.action_keys.get('undo', 'backspace').lower()
         
@@ -1023,12 +1046,76 @@ class MediaSorterApp:
             self.undo_last_action()
         elif key in ['delete', 'backspace'] and event.keysym.lower() == 'delete':
             self.delete_current_file()
+        elif key == 'q':
+            if not self.last_temp_folder:
+                self.handle_temp_folder_action(force_prompt=True)
+            else:
+                self.execute_move_to_path(self.last_temp_folder, "Temp Folder")
+        elif key == 'e':
+            self.handle_temp_folder_action(force_prompt=True)
+        elif key == 'p':
+            self.toggle_details_panel()
+        elif key == 'home':
+            self.jump_to_index(0)
+        elif key == 'end':
+            self.jump_to_index(len(self.media_files) - 1)
+        elif key in ['prior', 'next']:
+            if self.scroll_direction == 0:
+                self.scroll_direction = -1 if key == 'prior' else 1
+                self.scroll_start_time = self.root.tk.call('clock', 'clicks')
+                self.start_progressive_scroll()
         elif key in active_bound_keys:
             self.handle_move_action(key)
         elif key == 'left':
             self.navigate(-1)
         elif key == 'right':
             self.navigate(1)
+
+    def handle_keyrelease(self, event):
+        key = event.keysym.lower()
+        if key in self.pressed_keys:
+            self.pressed_keys.remove(key)
+            
+        if key in ['prior', 'next']:
+            self.stop_progressive_scroll()
+
+    def start_progressive_scroll(self):
+        if self.scroll_job:
+            self.root.after_cancel(self.scroll_job)
+            self.scroll_job = None
+
+        if not self.media_files:
+            return
+
+        elapsed = (self.root.tk.call('clock', 'clicks') - self.scroll_start_time) / 1000.0 if hasattr(self, 'scroll_start_time') else 0
+        
+        if elapsed < 3.0:
+            step = 5
+        elif elapsed < 6.0:
+            step = 10
+        else:
+            step = 15
+
+        new_index = max(0, min(len(self.media_files) - 1, self.index + (self.scroll_direction * step)))
+        if new_index != self.index:
+            self.index = new_index
+            self.show_toast(f"Jumped by {step}", color="#00BFFF")
+            self.load_current_media()
+
+        self.scroll_job = self.root.after(300, self.start_progressive_scroll)
+
+    def stop_progressive_scroll(self):
+        if self.scroll_job:
+            self.root.after_cancel(self.scroll_job)
+            self.scroll_job = None
+        self.scroll_direction = 0
+
+    def jump_to_index(self, idx):
+        if not self.media_files:
+            return
+        self.stop_video_stream()
+        self.index = max(0, min(len(self.media_files) - 1, idx))
+        self.load_current_media()
 
     def handle_move_action(self, key):
         if not (0 <= self.index < len(self.media_files)):
