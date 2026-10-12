@@ -85,7 +85,7 @@ class SetupDialog:
     def __init__(self, root):
         self.root = root
         self.root.title("Fast Media Sorter - Configuration")
-        self.root.geometry("620x880")
+        self.root.geometry("620x940")
         
         self.source_dir = ""
         self.dest_dirs = {}
@@ -107,7 +107,11 @@ class SetupDialog:
         }
         self.default_action_keys = {
             'skip': 'space',
-            'undo': 'backspace'
+            'undo': 'backspace',
+            'temp': 'e',
+            'pick_temp': 'q',
+            'details': 'p',
+            'delete': 'delete'
         }
         self.current_keys = self.default_keys.copy()
         self.current_action_keys = self.default_action_keys.copy()
@@ -145,7 +149,7 @@ class SetupDialog:
         self.dark_mode_chk = tk.Checkbutton(self.theme_frame, text="Enable Dark Mode", variable=self.dark_mode_var, font=("Arial", 10, "bold"), command=self.apply_theme)
         self.dark_mode_chk.pack(anchor="w")
 
-        self.lbl_hints = tk.Label(root, text="* Mouse Wheel = Zoom | Left-click Drag = Pan\n* Nav: Left/Right Arrows = Prev/Next | Delete = Move to Local Trash (Undoable)", 
+        self.lbl_hints = tk.Label(root, text="* Mouse Wheel = Zoom | Left-click Drag = Pan\n* Press [Escape] while rebinding a key to cancel", 
                                   fg="gray", font=("Arial", 9), justify="left")
         self.lbl_hints.pack(pady=5)
         
@@ -191,7 +195,7 @@ class SetupDialog:
                         elif isinstance(sub, tk.Entry):
                             sub.config(bg=widget_bg, fg=widget_fg, insertbackground=widget_fg, relief="solid", bd=1)
                         elif isinstance(sub, tk.Button):
-                            if sub["bg"] not in ["#28a745", "#dc3545", "#ffc107"]:
+                            if sub["bg"] not in ["#28a745", "#dc3545", "#ffc107", "#ff4d4d"]:
                                 sub.config(bg=btn_bg, fg=fg_color, activebackground="#444444" if is_dark else "#d0d0d0", activeforeground=fg_color, relief="flat", bd=0)
                 except Exception:
                     pass
@@ -204,6 +208,7 @@ class SetupDialog:
         self.src_browse_btn.config(bg=btn_bg, fg=fg_color, activebackground="#444444" if is_dark else "#d0d0d0", activeforeground=fg_color, relief="flat", bd=0)
         self.start_btn.config(bg="#28a745", fg="white", activebackground="#218838", activeforeground="white", relief="flat", bd=0)
         self.clear_btn.config(bg="#dc3545", fg="white", activebackground="#c82333", activeforeground="white", relief="flat", bd=0)
+        self.highlight_conflicts()
 
     def rebuild_key_ui(self):
         for widget in self.folder_rows_frame.winfo_children():
@@ -227,7 +232,7 @@ class SetupDialog:
             frame = tk.Frame(self.folder_rows_frame, bg=frame_bg)
             frame.pack(fill="x", pady=2)
             
-            key_btn = tk.Button(frame, text=f"Key: [{current_bind}]", width=12, bg="#333333" if is_dark else "#e0e0e0", fg=fg_color, relief="flat", bd=0,
+            key_btn = tk.Button(frame, text=f"[{current_bind}]", width=12, bg="#333333" if is_dark else "#e0e0e0", fg=fg_color, relief="flat", bd=0,
                                 command=lambda s=slot_id: self.start_listening_slot(s))
             key_btn.pack(side="left")
             ToolTip(key_btn, "Click to rebind shortcut key")
@@ -245,14 +250,21 @@ class SetupDialog:
             ToolTip(btn, "Browse and select destination folder path")
             self.dest_entries[slot_id] = (entry, btn)
 
-        actions = [('skip', 'Skip Media'), ('undo', 'Undo Last Move')]
+        actions = [
+            ('skip', 'Skip Media'), 
+            ('undo', 'Undo Last Move'),
+            ('temp', 'Send to Temp Folder'),
+            ('pick_temp', 'Pick New Temp & Send'),
+            ('details', 'Toggle Details Panel'),
+            ('delete', 'Move to Trash')
+        ]
         for action_id, action_label in actions:
             current_bind = self.current_action_keys[action_id].upper()
             
             frame = tk.Frame(self.action_rows_frame, bg=frame_bg)
             frame.pack(fill="x", pady=2)
             
-            key_btn = tk.Button(frame, text=f"Key: [{current_bind}]", width=12, bg="#333333" if is_dark else "#e0e0e0", fg=fg_color, relief="flat", bd=0,
+            key_btn = tk.Button(frame, text=f"[{current_bind}]", width=12, bg="#333333" if is_dark else "#e0e0e0", fg=fg_color, relief="flat", bd=0,
                                 command=lambda a=action_id: self.start_listening_action(a))
             key_btn.pack(side="left")
             ToolTip(key_btn, "Click to rebind action shortcut key")
@@ -260,6 +272,30 @@ class SetupDialog:
             
             lbl = tk.Label(frame, text=action_label, font=("Arial", 9), bg=frame_bg, fg=fg_color)
             lbl.pack(side="left", padx=10)
+
+        self.highlight_conflicts()
+
+    def highlight_conflicts(self):
+        """Scans all active key bindings and highlights conflicting buttons in red."""
+        all_keys = list(self.current_keys.values()) + list(self.current_action_keys.values())
+        duplicates = {k for k in all_keys if all_keys.count(k) > 1}
+
+        is_dark = self.dark_mode_var.get()
+        default_bg = "#333333" if is_dark else "#e0e0e0"
+
+        for s_id, btn in self.key_buttons.items():
+            char = self.current_keys[s_id]
+            if char in duplicates:
+                btn.config(bg="#ff4d4d", fg="white")
+            else:
+                btn.config(bg=default_bg, fg="#ffffff" if is_dark else "#000000")
+
+        for a_id, btn in self.action_key_buttons.items():
+            char = self.current_action_keys[a_id]
+            if char in duplicates:
+                btn.config(bg="#ff4d4d", fg="white")
+            else:
+                btn.config(bg=default_bg, fg="#ffffff" if is_dark else "#000000")
 
     def start_listening_slot(self, slot_id):
         self.listening_key = slot_id
@@ -291,23 +327,35 @@ class SetupDialog:
         if not self.listening_key and not self.listening_action:
             return
             
+        if event.keysym.lower() == 'escape':
+            self.listening_key = None
+            self.listening_action = None
+            self.rebuild_key_ui()
+            return
+
         if event.keysym.lower() in ['shift_l', 'shift_r', 'control_l', 'control_r', 'alt_l', 'alt_r', 'caps_lock']:
             return
             
         new_char = event.keysym.lower()
-        reserved_keys = ['left', 'right', 'return', 'escape', 'delete', 'back_space']
+        reserved_keys = ['return', 'escape']
         if new_char in reserved_keys:
-            messagebox.showwarning("Invalid Key", f"The key '{event.keysym}' is reserved for navigation or deletion.")
             return
+
+        has_conflict = False
+        conflict_msg = ""
 
         if self.listening_key:
             for s_id, char in self.current_keys.items():
                 if char == new_char and s_id != self.listening_key:
-                    messagebox.showwarning("Key in Use", f"Key '{new_char.upper()}' is already assigned to another folder slot.")
-                    return
+                    has_conflict = True
+                    conflict_msg = f"Key '{new_char.upper()}' is already assigned to another folder slot."
             for a_id, char in self.current_action_keys.items():
                 if char == new_char:
-                    messagebox.showwarning("Key in Use", f"Key '{new_char.upper()}' is already assigned to action '{a_id.capitalize()}'.")
+                    has_conflict = True
+                    conflict_msg = f"Key '{new_char.upper()}' is already assigned to action '{a_id.capitalize()}."
+
+            if has_conflict:
+                if not messagebox.askyesno("Key Conflict Warning", f"{conflict_msg}\n\nDo you want to assign it anyway? (Conflicting buttons will be highlighted in red)"):
                     return
 
             old_char = self.current_keys[self.listening_key]
@@ -321,11 +369,15 @@ class SetupDialog:
         elif self.listening_action:
             for s_id, char in self.current_keys.items():
                 if char == new_char:
-                    messagebox.showwarning("Key in Use", f"Key '{new_char.upper()}' is already assigned to a folder slot.")
-                    return
+                    has_conflict = True
+                    conflict_msg = f"Key '{new_char.upper()}' is already assigned to a folder slot."
             for a_id, char in self.current_action_keys.items():
                 if char == new_char and a_id != self.listening_action:
-                    messagebox.showwarning("Key in Use", f"Key '{new_char.upper()}' is already assigned to another action.")
+                    has_conflict = True
+                    conflict_msg = f"Key '{new_char.upper()}' is already assigned to another action."
+
+            if has_conflict:
+                if not messagebox.askyesno("Key Conflict Warning", f"{conflict_msg}\n\nDo you want to assign it anyway? (Conflicting buttons will be highlighted in red)"):
                     return
 
             self.current_action_keys[self.listening_action] = new_char
@@ -485,8 +537,7 @@ class MediaSorterApp:
         self.folder_action_bar.pack(side="top", fill="x", padx=10, pady=(5, 5))
         self.folder_action_bar.pack_propagate(False)
         
-        # Initialize persistent action bar buttons once to prevent recreation flicker
-        self.action_bar_buttons_cache = {}
+        self.folder_shortcut_buttons = {}
         self.init_folder_action_bar_widgets()
 
         self.nav_container = tk.Frame(root)
@@ -594,6 +645,20 @@ class MediaSorterApp:
         self.apply_theme_colors()
         self.save_current_config_to_file()
 
+    def save_current_config_to_file(self):
+        config = {
+            "source": self.src_folder,
+            "key_bindings": self.key_bindings,
+            "action_keys": self.action_keys,
+            "destinations": {k: os.path.normpath(v) for k, v in self.dest_dirs.items()},
+            "dark_mode": self.dark_mode
+        }
+        try:
+            with open(CONFIG_FILE, "w") as f:
+                json.dump(config, f, indent=4)
+        except Exception as e:
+            print(f"Failed to save config: {e}")
+
     def apply_theme_colors(self):
         is_dark = self.dark_mode
         set_window_title_bar_theme(self.root, is_dark)
@@ -633,22 +698,8 @@ class MediaSorterApp:
 
         self.update_folder_action_bar()
 
-    def save_current_config_to_file(self):
-        config = {
-            "source": self.src_folder,
-            "key_bindings": self.key_bindings,
-            "action_keys": self.action_keys,
-            "destinations": self.dest_dirs,
-            "dark_mode": self.dark_mode
-        }
-        try:
-            with open(CONFIG_FILE, "w") as f:
-                json.dump(config, f, indent=4)
-        except Exception as e:
-            print(f"Failed to save config: {e}")
-
     def init_folder_action_bar_widgets(self):
-        """Creates action bar buttons once during initialization to prevent flashing/recreation overhead."""
+        """Creates all action bar widgets once during startup to completely eliminate recreation flashing."""
         is_dark = self.dark_mode
         bar_bg = "#1e1e1e" if is_dark else "#e8e8e8"
         btn_bg = "#333333" if is_dark else "#d0d0d0"
@@ -656,49 +707,80 @@ class MediaSorterApp:
 
         self.folder_action_bar.config(bg=bar_bg)
 
-        # 1. Details toggle button
         self.details_toggle_btn = tk.Button(self.folder_action_bar, text="ℹ Details", bg=btn_bg, fg=btn_fg,
                                             font=("Arial", 9, "bold"), relief="flat", bd=0, padx=6, pady=2,
                                             command=self.toggle_details_panel)
         self.details_toggle_btn.pack(side="left", padx=(4, 12), pady=6)
-        ToolTip(self.details_toggle_btn, "Show or hide the floating file details panel (Shortcut: [P])")
+        ToolTip(self.details_toggle_btn, "Show or hide the floating file details panel")
 
-        # 2. Prev Button
         self.prev_btn = tk.Button(self.folder_action_bar, text="⬅ Prev", bg=btn_bg, fg=btn_fg,
                                   font=("Arial", 9, "bold"), relief="flat", bd=0, padx=6, pady=2,
                                   command=lambda: self.navigate(-1))
         self.prev_btn.pack(side="left", padx=4, pady=6)
-        ToolTip(self.prev_btn, "Go to previous media item (Shortcut: Left Arrow)")
+        ToolTip(self.prev_btn, "Go to previous media item")
 
-        # 3. Next Button
         self.next_btn = tk.Button(self.folder_action_bar, text="Next ➡", bg=btn_bg, fg=btn_fg,
                                   font=("Arial", 9, "bold"), relief="flat", bd=0, padx=6, pady=2,
                                   command=lambda: self.navigate(1))
         self.next_btn.pack(side="left", padx=4, pady=6)
-        ToolTip(self.next_btn, "Go to next media item (Shortcut: Right Arrow)")
+        ToolTip(self.next_btn, "Go to next media item")
 
-        # 4. Trash Button
         self.trash_action_btn = tk.Button(self.folder_action_bar, text="🗑 Trash", bg="#5a2323" if is_dark else "#ffcccc", fg="#ff8888" if is_dark else "#880000",
                                           font=("Segoe UI Symbol", 9, "bold"), relief="flat", bd=0, padx=8, pady=2,
                                           command=self.delete_current_file)
         self.trash_action_btn.pack(side="left", padx=4, pady=6)
-        ToolTip(self.trash_action_btn, "Move current file to local trash folder (Shortcut: Delete)")
+        ToolTip(self.trash_action_btn, "Move current file to local trash folder")
 
-        # 5. Undo Button
         self.undo_action_btn = tk.Button(self.folder_action_bar, text="↶ Undo", bg=btn_bg, fg=btn_fg,
                                          font=("Segoe UI Symbol", 9, "bold"), relief="flat", bd=0, padx=6, pady=2,
                                          command=self.undo_last_action)
         self.undo_action_btn.pack(side="left", padx=4, pady=6)
-        ToolTip(self.undo_action_btn, "Undo last move or delete action (Shortcut: Backspace)")
+        ToolTip(self.undo_action_btn, "Undo last move or delete action")
 
-        # 6. Separator
         self.action_sep = tk.Frame(self.folder_action_bar, width=2, bg="#444444" if is_dark else "#cccccc")
         self.action_sep.pack(side="left", fill="y", padx=2, pady=6)
 
-        # 7. Temp Folder Button
+        for slot_id, k in self.key_bindings.items():
+            btn = tk.Button(self.folder_action_bar, text="", font=("Arial", 9, "bold"), relief="flat", bd=0, padx=8, pady=2)
+            
+            hold_timer = [None]
+            def make_press_handlers(key_char):
+                def on_press(event):
+                    hold_timer[0] = self.folder_action_bar.after(500, lambda: on_long_press(key_char))
+                def on_release(event):
+                    if hold_timer[0]:
+                        self.folder_action_bar.after_cancel(hold_timer[0])
+                        hold_timer[0] = None
+                        self.handle_move_action(key_char)
+                return on_press, on_release
+            
+            def on_long_press(key_char):
+                hold_timer[0] = None
+                path = filedialog.askdirectory(title=f"Select New Folder for Key [{key_char.upper()}]")
+                if path:
+                    path = os.path.normpath(path)
+                    self.dest_dirs[key_char] = path
+                    self.save_current_config_to_file()
+                    self.update_folder_action_bar()
+                    self.show_toast(f"Updated folder for [{key_char.upper()}]", color="#00FF7F")
+                self.canvas.focus_set()
+
+            p_handler, r_handler = make_press_handlers(k)
+            btn.bind("<ButtonPress-1>", p_handler)
+            btn.bind("<ButtonRelease-1>", r_handler)
+            
+            self.folder_shortcut_buttons[k] = btn
+
+        self.assign_shortcut_btn = tk.Button(self.folder_action_bar, text="➕ Assign Shortcut", bg="#2b6cb0" if is_dark else "#bee3f8", fg="#ebf8ff" if is_dark else "#2b6cb0",
+                                             font=("Arial", 9, "bold"), relief="flat", bd=0, padx=8, pady=2,
+                                             command=self.assign_next_shortcut)
+        ToolTip(self.assign_shortcut_btn, "Assign a destination folder to the next available shortcut key in order")
+
+        self.no_mapping_lbl = tk.Label(self.folder_action_bar, text="No destination folders assigned in configuration.", font=("Arial", 9, "italic"))
+
         self.temp_btn = tk.Button(self.folder_action_bar, text="📁 Temp Folder", bg="#1a365d" if is_dark else "#cce5ff", fg="#90cdf4" if is_dark else "#004085", 
                                   font=("Arial", 9, "bold"), relief="flat", bd=0, padx=8, pady=2)
-        ToolTip(self.temp_btn, "Click to change temp folder\nHold-press (0.5s) to send file instantly to temp folder\nShortcuts: E = Send to temp | Q = Pick new temp & send")
+        ToolTip(self.temp_btn, "Click to change temp folder\nHold-press (0.5s) to send file instantly to temp folder")
         
         temp_hold_timer = [None]
         def on_temp_press(event):
@@ -722,12 +804,28 @@ class MediaSorterApp:
         self.temp_btn.bind("<ButtonRelease-1>", on_temp_release)
         self.temp_btn.pack(side="right", padx=(12, 4), pady=6)
 
-        # 8. Dynamic Destination Key Buttons Cache
-        self.dynamic_dest_buttons = []
-        self.no_mapping_lbl = tk.Label(self.folder_action_bar, text="No destination folders assigned in configuration.", bg=bar_bg, fg="#aaaaaa" if is_dark else "gray", font=("Arial", 9, "italic"))
+    def assign_next_shortcut(self):
+        sequence = list(self.key_bindings.values())
+        next_key = None
+        for key in sequence:
+            if key not in self.dest_dirs or not self.dest_dirs[key]:
+                next_key = key
+                break
+        
+        if not next_key:
+            messagebox.showinfo("All Assigned", "All shortcut keys have already been assigned!")
+            return
+            
+        path = filedialog.askdirectory(title=f"Select Folder for Shortcut [{next_key.upper()}]")
+        if path:
+            path = os.path.normpath(path)
+            self.dest_dirs[next_key] = path
+            self.save_current_config_to_file()
+            self.update_folder_action_bar() # Fixed: Re-renders the action bar to show the new shortcut button immediately
+            self.show_toast(f"Assigned folder to [{next_key.upper()}]", color="#00FF7F")
+        self.canvas.focus_set()
 
     def update_folder_action_bar(self):
-        """Updates styling and properties of existing action bar widgets without destroying them."""
         is_dark = self.dark_mode
         bar_bg = "#1e1e1e" if is_dark else "#e8e8e8"
         btn_bg = "#333333" if is_dark else "#d0d0d0"
@@ -735,70 +833,43 @@ class MediaSorterApp:
 
         self.folder_action_bar.config(bg=bar_bg)
 
-        # Update details button style/state
         details_bg = btn_bg if self.show_details_panel else ("#222222" if is_dark else "#b0b0b0")
         self.details_toggle_btn.config(bg=details_bg, fg=btn_fg)
 
-        # Update standard nav buttons
         for btn in [self.prev_btn, self.next_btn, self.undo_action_btn]:
             btn.config(bg=btn_bg, fg=btn_fg)
 
         self.trash_action_btn.config(bg="#5a2323" if is_dark else "#ffcccc", fg="#ff8888" if is_dark else "#880000")
         self.action_sep.config(bg="#444444" if is_dark else "#cccccc")
 
-        # Update temp button text
         temp_text = "📁 Temp Folder"
         if self.last_temp_folder:
             temp_text = f"📁 Temp: {os.path.basename(self.last_temp_folder)}"
         self.temp_btn.config(text=temp_text, bg="#1a365d" if is_dark else "#cce5ff", fg="#90cdf4" if is_dark else "#004085")
 
-        # Clear old dynamic destination buttons from pack view safely
-        for btn in self.dynamic_dest_buttons:
-            btn.destroy()
-        self.dynamic_dest_buttons.clear()
+        for btn in self.folder_shortcut_buttons.values():
+            btn.pack_forget()
+        self.assign_shortcut_btn.pack_forget()
         self.no_mapping_lbl.pack_forget()
 
-        # Re-populate active key mapping buttons
         mapping_found = False
         for slot_id, k in self.key_bindings.items():
             v = self.dest_dirs.get(k)
-            if v:
+            if v and k in self.folder_shortcut_buttons:
                 mapping_found = True
                 folder_name = os.path.basename(v)
-                
-                btn = tk.Button(self.folder_action_bar, text=f"📁 {folder_name}", bg=btn_bg, fg=btn_fg, 
-                                font=("Arial", 9, "bold"), relief="flat", bd=0, padx=8, pady=2)
+                btn = self.folder_shortcut_buttons[k]
+                btn.config(text=f"📁 {folder_name} [{k.upper()}]", bg=btn_bg, fg=btn_fg)
                 ToolTip(btn, f"Single-click to send file to {folder_name} (Shortcut: [{k.upper()}])\nHold-press to change folder")
-                
-                hold_timer = [None]
-                def make_press_handlers(key_char):
-                    def on_press(event):
-                        hold_timer[0] = self.folder_action_bar.after(500, lambda: on_long_press(key_char))
-                    def on_release(event):
-                        if hold_timer[0]:
-                            self.folder_action_bar.after_cancel(hold_timer[0])
-                            hold_timer[0] = None
-                            self.handle_move_action(key_char)
-                    return on_press, on_release
-                
-                def on_long_press(key_char):
-                    hold_timer[0] = None
-                    path = filedialog.askdirectory(title=f"Select New Folder for Key [{key_char.upper()}]")
-                    if path:
-                        path = os.path.normpath(path)
-                        self.dest_dirs[key_char] = path
-                        self.save_current_config_to_file()
-                        self.update_folder_action_bar()
-                        self.show_toast(f"Updated folder for [{key_char.upper()}]", color="#00FF7F")
-                    self.canvas.focus_set()
-
-                p_handler, r_handler = make_press_handlers(k)
-                btn.bind("<ButtonPress-1>", p_handler)
-                btn.bind("<ButtonRelease-1>", r_handler)
                 btn.pack(side="left", padx=4, pady=6)
-                self.dynamic_dest_buttons.append(btn)
 
-        if not mapping_found:
+        sequence = list(self.key_bindings.values())
+        has_unassigned = any(key not in self.dest_dirs or not self.dest_dirs[key] for key in sequence)
+        if has_unassigned:
+            self.assign_shortcut_btn.config(bg="#2b6cb0" if is_dark else "#bee3f8", fg="#ebf8ff" if is_dark else "#2b6cb0")
+            self.assign_shortcut_btn.pack(side="left", padx=6, pady=6)
+
+        if not mapping_found and not has_unassigned:
             self.no_mapping_lbl.config(bg=bar_bg, fg="#aaaaaa" if is_dark else "gray")
             self.no_mapping_lbl.pack(side="left", padx=10, pady=8)
 
@@ -1256,21 +1327,25 @@ class MediaSorterApp:
         active_bound_keys = list(self.dest_dirs.keys())
         skip_key = self.action_keys.get('skip', 'space').lower()
         undo_key = self.action_keys.get('undo', 'backspace').lower()
+        temp_key = self.action_keys.get('temp', 'e').lower()
+        pick_temp_key = self.action_keys.get('pick_temp', 'q').lower()
+        details_key = self.action_keys.get('details', 'p').lower()
+        delete_key = self.action_keys.get('delete', 'delete').lower()
         
         if key == skip_key:
             self.skip_action()
         elif key == undo_key:
             self.undo_last_action()
-        elif key in ['delete', 'backspace'] and event.keysym.lower() == 'delete':
+        elif key == delete_key or (event.keysym.lower() == 'delete' and delete_key == 'delete'):
             self.delete_current_file()
-        elif key == 'e':
+        elif key == temp_key:
             if not self.last_temp_folder:
                 self.handle_temp_folder_action(force_prompt=True)
             else:
                 self.execute_move_to_path(self.last_temp_folder, "Temp Folder")
-        elif key == 'q':
+        elif key == pick_temp_key:
             self.handle_temp_folder_action(force_prompt=True)
-        elif key == 'p':
+        elif key == details_key:
             self.toggle_details_panel()
         elif key == 'home':
             self.jump_to_index(0)
