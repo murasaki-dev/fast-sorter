@@ -570,10 +570,16 @@ class MediaSorterApp:
         self.counter_label = tk.Label(self.nav_bar_top, text="Moved: 0", font=("Arial", 9, "bold"))
         self.counter_label.pack(side="left", padx=10, pady=5)
 
+        # Added Config Button right next to Dark Mode toggle
+        self.config_btn = tk.Button(self.nav_bar_top, text="⚙ Config", command=self.return_to_config,
+                                    font=("Arial", 9, "bold"), relief="flat", bd=0, padx=8, pady=2)
+        self.config_btn.pack(side="right", padx=(5, 5), pady=5)
+        ToolTip(self.config_btn, "Return to configuration window")
+
         self.dark_mode_var = tk.BooleanVar(value=self.dark_mode)
         self.footer_dark_chk = tk.Checkbutton(self.nav_bar_top, text="Dark Mode", variable=self.dark_mode_var, 
                                               command=self.toggle_dark_mode)
-        self.footer_dark_chk.pack(side="right", padx=10, pady=5)
+        self.footer_dark_chk.pack(side="right", padx=5, pady=5)
         ToolTip(self.footer_dark_chk, "Toggle application dark mode")
 
         self.nav_bar_bottom = tk.Frame(self.nav_container, height=40)
@@ -640,6 +646,16 @@ class MediaSorterApp:
         self.apply_theme_colors()
         self.load_current_media()
 
+    def return_to_config(self):
+        """Saves configuration and switches back to the SetupDialog window."""
+        self.stop_video_stream()
+        self.save_current_config_to_file()
+        self.root.destroy()
+        
+        setup_root = tk.Tk()
+        SetupDialog(setup_root)
+        setup_root.mainloop()
+
     def toggle_dark_mode(self):
         self.dark_mode = self.dark_mode_var.get()
         self.apply_theme_colors()
@@ -689,6 +705,7 @@ class MediaSorterApp:
         self.explorer_btn.config(bg=btn_bg, fg=fg_color, activebackground="#444444" if is_dark else "#c0c0c0", activeforeground=fg_color, relief="flat", bd=0)
         self.trash_btn.config(bg="#5a2323" if is_dark else "#d9534f", fg="white", activebackground="#7a2e2e" if is_dark else "#c9302c", activeforeground="white", relief="flat", bd=0)
         self.restore_trash_btn.config(bg="#3a4a3a" if is_dark else "#5cb85c", fg="white", activebackground="#4a5a4a" if is_dark else "#449d44", activeforeground="white", relief="flat", bd=0)
+        self.config_btn.config(bg=btn_bg, fg=fg_color, activebackground="#444444" if is_dark else "#c0c0c0", activeforeground=fg_color, relief="flat", bd=0)
 
         self.details_panel.config(bg="#1e1e1e" if is_dark else "#ffffff", bd=1, relief="solid")
         self.details_title_lbl.config(bg="#1e1e1e" if is_dark else "#ffffff", fg="#ffffff" if is_dark else "#000000")
@@ -821,7 +838,7 @@ class MediaSorterApp:
             path = os.path.normpath(path)
             self.dest_dirs[next_key] = path
             self.save_current_config_to_file()
-            self.update_folder_action_bar() # Fixed: Re-renders the action bar to show the new shortcut button immediately
+            self.update_folder_action_bar()
             self.show_toast(f"Assigned folder to [{next_key.upper()}]", color="#00FF7F")
         self.canvas.focus_set()
 
