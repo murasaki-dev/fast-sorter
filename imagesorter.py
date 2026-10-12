@@ -41,7 +41,6 @@ def set_window_title_bar_theme(root, is_dark):
 
 class ToolTip:
     """Helper class to create lightweight hover tooltips for Tkinter widgets."""
-    # Keep track of active tooltips globally to ensure they can be cleared
     active_tooltips = []
 
     def __init__(self, widget, text):
@@ -53,7 +52,6 @@ class ToolTip:
         self.widget.bind("<Leave>", self.hide)
         self.widget.bind("<ButtonPress>", self.hide)
         
-        # Bind global click on root to instantly kill tooltips when top buttons are clicked
         try:
             top_root = self.widget.winfo_toplevel()
             top_root.bind("<Button-1>", lambda e: ToolTip.hide_all(), add="+")
@@ -121,7 +119,7 @@ class SetupDialog:
     def __init__(self, root):
         self.root = root
         self.root.title("Fast Media Sorter - Configuration")
-        self.root.geometry("620x940")
+        self.root.geometry("620x980")
         
         self.source_dir = ""
         self.dest_dirs = {}
@@ -153,6 +151,7 @@ class SetupDialog:
         self.current_action_keys = self.default_action_keys.copy()
         
         self.dark_mode_var = tk.BooleanVar(value=False)
+        self.collision_mode_var = tk.StringVar(value="append")
         
         self.lbl_src = tk.Label(root, text="Unsorted Media Folder:", font=("Arial", 10, "bold"))
         self.lbl_src.pack(anchor="w", padx=20, pady=(15, 0))
@@ -182,8 +181,19 @@ class SetupDialog:
 
         self.theme_frame = tk.Frame(root)
         self.theme_frame.pack(fill="x", padx=20, pady=10)
+        
         self.dark_mode_chk = tk.Checkbutton(self.theme_frame, text="Enable Dark Mode", variable=self.dark_mode_var, font=("Arial", 10, "bold"), command=self.apply_theme)
-        self.dark_mode_chk.pack(anchor="w")
+        self.dark_mode_chk.pack(anchor="w", pady=(0, 5))
+
+        self.collision_config_frame = tk.Frame(self.theme_frame)
+        self.collision_config_frame.pack(anchor="w", fill="x", pady=5)
+        
+        self.config_collision_lbl = tk.Label(self.collision_config_frame, text="Filename Conflict:", font=("Arial", 10, "bold"))
+        self.config_collision_lbl.pack(side="left", padx=(0, 10))
+        
+        self.config_collision_dropdown = ttk.Combobox(self.collision_config_frame, textvariable=self.collision_mode_var, state="readonly", width=12, values=["append", "replace"])
+        self.config_collision_dropdown.pack(side="left")
+        ToolTip(self.config_collision_dropdown, "Choose how to handle filename conflicts when moving files:\n• append: Adds a suffix number if file exists\n• replace: Overwrites existing file")
 
         self.lbl_hints = tk.Label(root, text="* Mouse Wheel = Zoom | Left-click Drag = Pan\n* Press [Escape] while rebinding a key to cancel", 
                                   fg="gray", font=("Arial", 9), justify="left")
@@ -218,7 +228,7 @@ class SetupDialog:
         btn_bg = "#333333" if is_dark else "#e0e0e0"
         
         self.root.config(bg=bg_color)
-        for parent_frame in [self.src_frame, self.folder_rows_frame, self.action_rows_frame, self.theme_frame, self.btn_frame]:
+        for parent_frame in [self.src_frame, self.folder_rows_frame, self.action_rows_frame, self.theme_frame, self.collision_config_frame, self.btn_frame]:
             parent_frame.config(bg=bg_color)
 
         for parent_frame in [self.folder_rows_frame, self.action_rows_frame]:
@@ -236,7 +246,7 @@ class SetupDialog:
                 except Exception:
                     pass
 
-        for lbl in [self.lbl_src, self.lbl_dest, self.lbl_action, self.lbl_hints]:
+        for lbl in [self.lbl_src, self.lbl_dest, self.lbl_action, self.config_collision_lbl, self.lbl_hints]:
             lbl.config(bg=bg_color, fg=fg_color)
             
         self.dark_mode_chk.config(bg=bg_color, fg=fg_color, activebackground=bg_color, activeforeground=fg_color, selectcolor="#333333" if is_dark else "#ffffff")
@@ -466,19 +476,21 @@ class SetupDialog:
                     self.dest_dirs[key] = os.path.normpath(path)
 
                 self.dark_mode_var.set(config.get("dark_mode", False))
+                self.collision_mode_var.set(config.get("collision_mode", "append"))
                 self.apply_theme()
                     
                 self.rebuild_key_ui()
             except Exception as e:
                 print(f"Failed to load config: {e}")
 
-    def save_config(self, src, dests, key_bindings, action_keys, dark_mode):
+    def save_config(self, src, dests, key_bindings, action_keys, dark_mode, collision_mode):
         config = {
             "source": os.path.normpath(src),
             "key_bindings": key_bindings,
             "action_keys": action_keys,
             "destinations": {k: os.path.normpath(v) for k, v in dests.items()},
-            "dark_mode": dark_mode
+            "dark_mode": dark_mode,
+            "collision_mode": collision_mode
         }
         try:
             with open(CONFIG_FILE, "w") as f:
@@ -493,6 +505,7 @@ class SetupDialog:
             self.current_keys = self.default_keys.copy()
             self.current_action_keys = self.default_action_keys.copy()
             self.dark_mode_var.set(False)
+            self.collision_mode_var.set("append")
             self.apply_theme()
             self.rebuild_key_ui()
             
@@ -516,21 +529,22 @@ class SetupDialog:
                 self.dest_dirs[bound_char] = os.path.normpath(val)
 
         ToolTip.hide_all()
-        self.save_config(src, self.dest_dirs, self.current_keys, self.current_action_keys, self.dark_mode_var.get())
+        self.save_config(src, self.dest_dirs, self.current_keys, self.current_action_keys, self.dark_mode_var.get(), self.collision_mode_var.get())
         self.root.destroy()
         
         main_root = tk.Tk()
-        MediaSorterApp(main_root, src, self.dest_dirs, self.current_keys, self.current_action_keys, self.dark_mode_var.get())
+        MediaSorterApp(main_root, src, self.dest_dirs, self.current_keys, self.current_action_keys, self.dark_mode_var.get(), self.collision_mode_var.get())
         main_root.mainloop()
 
 class MediaSorterApp:
-    def __init__(self, root, src_folder, dest_dirs, key_bindings, action_keys, dark_mode=False):
+    def __init__(self, root, src_folder, dest_dirs, key_bindings, action_keys, dark_mode=False, collision_mode="append"):
         self.root = root
         self.src_folder = os.path.normpath(src_folder)
         self.dest_dirs = dest_dirs
         self.key_bindings = key_bindings
         self.action_keys = action_keys
         self.dark_mode = dark_mode
+        self.collision_mode = collision_mode
         
         initial_main_bg = "#121212" if self.dark_mode else "#f0f0f0"
         self.root.config(bg=initial_main_bg)
@@ -570,13 +584,6 @@ class MediaSorterApp:
         self.root.title("Fast Media Sorter")
         self.root.geometry("1150x800")
         
-        self.folder_action_bar = tk.Frame(root, height=40)
-        self.folder_action_bar.pack(side="top", fill="x", padx=10, pady=(5, 5))
-        self.folder_action_bar.pack_propagate(False)
-        
-        self.folder_shortcut_buttons = {}
-        self.init_folder_action_bar_widgets()
-
         self.nav_container = tk.Frame(root)
         self.nav_container.pack(side="bottom", fill="x")
         
@@ -594,7 +601,7 @@ class MediaSorterApp:
         self.explorer_btn.pack(side="left", padx=5, pady=5)
         ToolTip(self.explorer_btn, "Reveal current media file in system file explorer")
 
-        self.trash_btn = tk.Button(self.nav_bar_top, text="🗑 Trash Bin", command=self.empty_local_trash, 
+        self.trash_btn = tk.Button(self.nav_bar_top, text="🗑 Empty Trashbin", command=self.empty_local_trash, 
                                    font=("Segoe UI Symbol", 9, "bold"), relief="flat", bd=0, padx=6)
         self.trash_btn.pack(side="left", padx=5, pady=5)
         ToolTip(self.trash_btn, "Permanently delete files stored inside the local .trash folder")
@@ -617,6 +624,17 @@ class MediaSorterApp:
                                               command=self.toggle_dark_mode)
         self.footer_dark_chk.pack(side="right", padx=5, pady=5)
         ToolTip(self.footer_dark_chk, "Toggle application dark mode")
+
+        # Filename Conflict toggle relocated to the bottom navigation bar (next to dark mode toggle)
+        self.collision_var = tk.StringVar(value=self.collision_mode)
+        self.collision_dropdown = ttk.Combobox(self.nav_bar_top, textvariable=self.collision_var, state="readonly", width=10,
+                                               values=["append", "replace"])
+        self.collision_dropdown.bind("<<ComboboxSelected>>", self.on_collision_changed)
+        ToolTip(self.collision_dropdown, "Filename Conflict Resolution Mode:\n• append: Automatically adds a number suffix if a file with the same name exists\n• replace: Overwrites the existing file in the destination folder")
+        self.collision_dropdown.pack(side="right", padx=5, pady=5)
+
+        self.collision_lbl = tk.Label(self.nav_bar_top, text="Filename Conflict:", font=("Arial", 9, "bold"))
+        self.collision_lbl.pack(side="right", padx=(10, 2), pady=5)
 
         self.nav_bar_bottom = tk.Frame(self.nav_container, height=40)
         self.nav_bar_bottom.pack(side="top", fill="x", padx=5, pady=(0, 5))
@@ -644,6 +662,13 @@ class MediaSorterApp:
         
         self.jump_title_lbl = tk.Label(self.nav_bar_bottom, text="Jump to file:", font=("Arial", 9))
         self.jump_title_lbl.pack(side="right", padx=5, pady=5)
+
+        self.folder_action_bar = tk.Frame(root, height=40)
+        self.folder_action_bar.pack(side="top", fill="x", padx=10, pady=(5, 5))
+        self.folder_action_bar.pack_propagate(False)
+        
+        self.folder_shortcut_buttons = {}
+        self.init_folder_action_bar_widgets()
 
         self.container = tk.Frame(root)
         self.container.pack(fill=tk.BOTH, expand=True, padx=10, pady=(5, 5))
@@ -698,13 +723,18 @@ class MediaSorterApp:
         self.apply_theme_colors()
         self.save_current_config_to_file()
 
+    def on_collision_changed(self, event=None):
+        self.collision_mode = self.collision_var.get()
+        self.save_current_config_to_file()
+
     def save_current_config_to_file(self):
         config = {
             "source": self.src_folder,
             "key_bindings": self.key_bindings,
             "action_keys": self.action_keys,
             "destinations": {k: os.path.normpath(v) for k, v in self.dest_dirs.items()},
-            "dark_mode": self.dark_mode
+            "dark_mode": self.dark_mode,
+            "collision_mode": self.collision_mode
         }
         try:
             with open(CONFIG_FILE, "w") as f:
@@ -733,6 +763,7 @@ class MediaSorterApp:
         
         self.counter_label.config(bg=container_bg, fg="#008000" if not is_dark else "#00FF7F")
         self.sort_label.config(bg=container_bg, fg=fg_color)
+        self.collision_lbl.config(bg=container_bg, fg=fg_color)
         self.jump_title_lbl.config(bg=container_bg, fg=fg_color)
         self.jump_label.config(bg=container_bg, fg=fg_color)
         self.jump_slider.config(bg=container_bg, fg=fg_color, troughcolor="#333333" if is_dark else "#bbbbbb")
@@ -958,9 +989,29 @@ class MediaSorterApp:
         self.stop_video_stream()
         current_media_path = os.path.normpath(self.media_files[self.index])
         os.makedirs(path, exist_ok=True)
-        folder_name = os.path.basename(path)
-        dest_path = os.path.normpath(os.path.join(path, os.path.basename(current_media_path)))
+        filename = os.path.basename(current_media_path)
+        dest_path = os.path.normpath(os.path.join(path, filename))
         
+        # Check for file collision
+        if os.path.exists(dest_path):
+            mode_desc = "Append Number" if self.collision_mode == "append" else "Replace Existing"
+            proceed = messagebox.askyesno(
+                "Filename Conflict Warning",
+                f"A file named '{filename}' already exists in destination folder '{os.path.basename(path)}'.\n\n"
+                f"Selected Conflict Behavior: {mode_desc}\n\n"
+                f"Do you want to proceed with this behavior?"
+            )
+            if not proceed:
+                self.canvas.focus_set()
+                return
+
+            if self.collision_mode == "append":
+                base, ext = os.path.splitext(filename)
+                counter = 1
+                while os.path.exists(dest_path):
+                    dest_path = os.path.normpath(os.path.join(path, f"{base}_{counter}{ext}"))
+                    counter += 1
+
         shutil.move(current_media_path, dest_path)
         self.history.append((current_media_path, self.index, dest_path, 'move'))
         self.media_files.pop(self.index)
@@ -971,7 +1022,7 @@ class MediaSorterApp:
         if self.index >= len(self.media_files) and self.index > 0:
             self.index = len(self.media_files) - 1
             
-        self.show_toast(f"Moved to {label_name}: {folder_name}", color="#00FF7F")
+        self.show_toast(f"Moved to {label_name}: {os.path.basename(path)}", color="#00FF7F")
         self.load_current_media()
 
     def toggle_details_panel(self):
@@ -1017,9 +1068,9 @@ class MediaSorterApp:
                 count = 0
         
         if count > 0:
-            self.trash_btn.config(text=f"🗑 Trash Bin ({count})")
+            self.trash_btn.config(text=f"🗑 Empty Trashbin ({count})")
         else:
-            self.trash_btn.config(text="🗑 Trash Bin")
+            self.trash_btn.config(text="🗑 Empty Trashbin")
 
     def check_focus_restore(self, event):
         current_focus = self.root.focus_get()
@@ -1384,7 +1435,7 @@ class MediaSorterApp:
         self.canvas.create_image(x, y, anchor="center", image=self.tk_img)
 
     def handle_keypress(self, event):
-        if isinstance(self.root.focus_get(), ttk.Combobox):
+        if isinstance(self.root.focus_get(), (ttk.Combobox, tk.Entry)):
             return
             
         key = event.keysym.lower()
@@ -1484,28 +1535,9 @@ class MediaSorterApp:
         if not (0 <= self.index < len(self.media_files)):
             return
             
-        self.stop_video_stream()
-        current_media_path = os.path.normpath(self.media_files[self.index])
         target_folder = self.dest_dirs.get(key)
-        
         if target_folder:
-            target_folder = os.path.normpath(target_folder)
-            os.makedirs(target_folder, exist_ok=True)
-            folder_name = os.path.basename(target_folder)
-            dest_path = os.path.normpath(os.path.join(target_folder, os.path.basename(current_media_path)))
-            
-            shutil.move(current_media_path, dest_path)
-            self.history.append((current_media_path, self.index, dest_path, 'move'))
-            self.media_files.pop(self.index)
-            
-            self.moved_count += 1
-            self.counter_label.config(text=f"Moved: {self.moved_count}")
-            
-            if self.index >= len(self.media_files) and self.index > 0:
-                self.index = len(self.media_files) - 1
-                
-            self.show_toast(f"Moved to [{key.upper()}]: {folder_name}", color="#00FF7F")
-            self.load_current_media()
+            self.execute_move_to_path(target_folder, f"[{key.upper()}]")
 
     def delete_current_file(self):
         ToolTip.hide_all()
@@ -1519,9 +1551,10 @@ class MediaSorterApp:
             local_trash_dir = os.path.normpath(os.path.join(self.src_folder, ".trash"))
             os.makedirs(local_trash_dir, exist_ok=True)
             
-            dest_path = os.path.normpath(os.path.join(local_trash_dir, os.path.basename(current_media_path)))
+            filename = os.path.basename(current_media_path)
+            dest_path = os.path.normpath(os.path.join(local_trash_dir, filename))
             
-            base, ext = os.path.splitext(os.path.basename(current_media_path))
+            base, ext = os.path.splitext(filename)
             counter = 1
             while os.path.exists(dest_path):
                 dest_path = os.path.normpath(os.path.join(local_trash_dir, f"{base}_{counter}{ext}"))
