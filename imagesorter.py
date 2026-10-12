@@ -41,6 +41,9 @@ def set_window_title_bar_theme(root, is_dark):
 
 class ToolTip:
     """Helper class to create lightweight hover tooltips for Tkinter widgets."""
+    # Keep track of active tooltips globally to ensure they can be cleared
+    active_tooltips = []
+
     def __init__(self, widget, text):
         self.widget = widget
         self.text = text
@@ -49,6 +52,20 @@ class ToolTip:
         self.widget.bind("<Enter>", self.schedule)
         self.widget.bind("<Leave>", self.hide)
         self.widget.bind("<ButtonPress>", self.hide)
+        
+        # Bind global click on root to instantly kill tooltips when top buttons are clicked
+        try:
+            top_root = self.widget.winfo_toplevel()
+            top_root.bind("<Button-1>", lambda e: ToolTip.hide_all(), add="+")
+        except Exception:
+            pass
+
+    @classmethod
+    def hide_all(cls):
+        """Hides and destroys all active tooltips globally."""
+        for t in cls.active_tooltips:
+            t._force_hide()
+        cls.active_tooltips.clear()
 
     def schedule(self, event=None):
         self.unschedule()
@@ -58,7 +75,10 @@ class ToolTip:
         id_val = self.id
         self.id = None
         if id_val:
-            self.widget.after_cancel(id_val)
+            try:
+                self.widget.after_cancel(id_val)
+            except Exception:
+                pass
 
     def show(self, event=None):
         if self.tip_window or not self.text:
@@ -72,14 +92,30 @@ class ToolTip:
             label = tk.Label(tw, text=self.text, background="#ffffe0", foreground="#000000",
                              relief="solid", borderwidth=1, font=("Arial", 8), padx=4, pady=2)
             label.pack(ipadx=1)
+            if self not in ToolTip.active_tooltips:
+                ToolTip.active_tooltips.append(self)
         except Exception:
             pass
+
+    def _force_hide(self):
+        self.unschedule()
+        if self.tip_window:
+            try:
+                self.tip_window.destroy()
+            except Exception:
+                pass
+            self.tip_window = None
 
     def hide(self, event=None):
         self.unschedule()
         if self.tip_window:
-            self.tip_window.destroy()
+            try:
+                self.tip_window.destroy()
+            except Exception:
+                pass
             self.tip_window = None
+        if self in ToolTip.active_tooltips:
+            ToolTip.active_tooltips.remove(self)
 
 class SetupDialog:
     def __init__(self, root):
@@ -479,6 +515,7 @@ class SetupDialog:
             if val:
                 self.dest_dirs[bound_char] = os.path.normpath(val)
 
+        ToolTip.hide_all()
         self.save_config(src, self.dest_dirs, self.current_keys, self.current_action_keys, self.dark_mode_var.get())
         self.root.destroy()
         
@@ -570,7 +607,6 @@ class MediaSorterApp:
         self.counter_label = tk.Label(self.nav_bar_top, text="Moved: 0", font=("Arial", 9, "bold"))
         self.counter_label.pack(side="left", padx=10, pady=5)
 
-        # Added Config Button right next to Dark Mode toggle
         self.config_btn = tk.Button(self.nav_bar_top, text="⚙ Config", command=self.return_to_config,
                                     font=("Arial", 9, "bold"), relief="flat", bd=0, padx=8, pady=2)
         self.config_btn.pack(side="right", padx=(5, 5), pady=5)
@@ -648,6 +684,7 @@ class MediaSorterApp:
 
     def return_to_config(self):
         """Saves configuration and switches back to the SetupDialog window."""
+        ToolTip.hide_all()
         self.stop_video_stream()
         self.save_current_config_to_file()
         self.root.destroy()
@@ -763,8 +800,10 @@ class MediaSorterApp:
             hold_timer = [None]
             def make_press_handlers(key_char):
                 def on_press(event):
+                    ToolTip.hide_all()
                     hold_timer[0] = self.folder_action_bar.after(500, lambda: on_long_press(key_char))
                 def on_release(event):
+                    ToolTip.hide_all()
                     if hold_timer[0]:
                         self.folder_action_bar.after_cancel(hold_timer[0])
                         hold_timer[0] = None
@@ -773,6 +812,7 @@ class MediaSorterApp:
             
             def on_long_press(key_char):
                 hold_timer[0] = None
+                ToolTip.hide_all()
                 path = filedialog.askdirectory(title=f"Select New Folder for Key [{key_char.upper()}]")
                 if path:
                     path = os.path.normpath(path)
@@ -801,9 +841,11 @@ class MediaSorterApp:
         
         temp_hold_timer = [None]
         def on_temp_press(event):
+            ToolTip.hide_all()
             temp_hold_timer[0] = self.folder_action_bar.after(500, on_temp_long_press)
 
         def on_temp_release(event):
+            ToolTip.hide_all()
             if temp_hold_timer[0]:
                 self.folder_action_bar.after_cancel(temp_hold_timer[0])
                 temp_hold_timer[0] = None
@@ -811,6 +853,7 @@ class MediaSorterApp:
 
         def on_temp_long_press():
             temp_hold_timer[0] = None
+            ToolTip.hide_all()
             if not self.last_temp_folder:
                 self.handle_temp_folder_action(force_prompt=True)
             else:
@@ -822,6 +865,7 @@ class MediaSorterApp:
         self.temp_btn.pack(side="right", padx=(12, 4), pady=6)
 
     def assign_next_shortcut(self):
+        ToolTip.hide_all()
         sequence = list(self.key_bindings.values())
         next_key = None
         for key in sequence:
@@ -843,6 +887,7 @@ class MediaSorterApp:
         self.canvas.focus_set()
 
     def update_folder_action_bar(self):
+        ToolTip.hide_all()
         is_dark = self.dark_mode
         bar_bg = "#1e1e1e" if is_dark else "#e8e8e8"
         btn_bg = "#333333" if is_dark else "#d0d0d0"
@@ -891,6 +936,7 @@ class MediaSorterApp:
             self.no_mapping_lbl.pack(side="left", padx=10, pady=8)
 
     def handle_temp_folder_action(self, force_prompt=False):
+        ToolTip.hide_all()
         if not (0 <= self.index < len(self.media_files)):
             return
             
@@ -906,6 +952,7 @@ class MediaSorterApp:
         self.canvas.focus_set()
 
     def execute_move_to_path(self, path, label_name):
+        ToolTip.hide_all()
         if not (0 <= self.index < len(self.media_files)):
             return
         self.stop_video_stream()
@@ -928,6 +975,7 @@ class MediaSorterApp:
         self.load_current_media()
 
     def toggle_details_panel(self):
+        ToolTip.hide_all()
         self.show_details_panel = not self.show_details_panel
         if self.show_details_panel:
             self.details_panel.place(x=10, y=10)
@@ -979,6 +1027,7 @@ class MediaSorterApp:
             self.canvas.focus_set()
 
     def on_sort_changed(self, event=None):
+        ToolTip.hide_all()
         if not self.media_files:
             return
             
@@ -1016,6 +1065,7 @@ class MediaSorterApp:
         self.toast_timer = self.root.after(1200, lambda: self.toast_label.place_forget())
 
     def open_current_file(self):
+        ToolTip.hide_all()
         if not (0 <= self.index < len(self.media_files)):
             return
         media_path = os.path.normpath(self.media_files[self.index])
@@ -1031,6 +1081,7 @@ class MediaSorterApp:
                 messagebox.showerror("Error", f"Could not open file:\n{e}")
 
     def open_in_explorer(self):
+        ToolTip.hide_all()
         if not (0 <= self.index < len(self.media_files)):
             return
         media_path = os.path.normpath(self.media_files[self.index])
@@ -1043,6 +1094,7 @@ class MediaSorterApp:
                 subprocess.run(['xdg-open', os.path.dirname(media_path)])
 
     def empty_local_trash(self):
+        ToolTip.hide_all()
         local_trash_dir = os.path.normpath(os.path.join(self.src_folder, ".trash"))
         if not os.path.exists(local_trash_dir) or not os.listdir(local_trash_dir):
             messagebox.showinfo("Local Trash", "Local trash folder is empty or doesn't exist yet.")
@@ -1059,6 +1111,7 @@ class MediaSorterApp:
         self.canvas.focus_set()
 
     def restore_all_from_trash(self):
+        ToolTip.hide_all()
         local_trash_dir = os.path.normpath(os.path.join(self.src_folder, ".trash"))
         if not os.path.exists(local_trash_dir):
             messagebox.showinfo("Restore", "Local trash folder does not exist.")
@@ -1427,6 +1480,7 @@ class MediaSorterApp:
         self.load_current_media()
 
     def handle_move_action(self, key):
+        ToolTip.hide_all()
         if not (0 <= self.index < len(self.media_files)):
             return
             
@@ -1454,6 +1508,7 @@ class MediaSorterApp:
             self.load_current_media()
 
     def delete_current_file(self):
+        ToolTip.hide_all()
         if not (0 <= self.index < len(self.media_files)):
             return
 
@@ -1487,6 +1542,7 @@ class MediaSorterApp:
             messagebox.showerror("Error", f"Could not move file to local trash:\n{e}")
 
     def skip_action(self):
+        ToolTip.hide_all()
         if len(self.media_files) == 0:
             return
         self.stop_video_stream()
@@ -1495,6 +1551,7 @@ class MediaSorterApp:
         self.load_current_media()
 
     def navigate(self, direction):
+        ToolTip.hide_all()
         if len(self.media_files) == 0:
             return
         self.stop_video_stream()
@@ -1502,6 +1559,7 @@ class MediaSorterApp:
         self.load_current_media()
 
     def undo_last_action(self):
+        ToolTip.hide_all()
         if not self.history:
             return
             
@@ -1541,6 +1599,7 @@ class MediaSorterApp:
                 self.load_current_media()
 
     def on_close(self):
+        ToolTip.hide_all()
         self.stop_video_stream()
         self.root.destroy()
 
